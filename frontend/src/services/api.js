@@ -49,6 +49,8 @@ export const reportAPI = {
     });
     return response;
   },
+  getHistory: (limit = 50) => api.get(`/report/history?limit=${limit}`),
+  deleteHistory: (logId) => api.delete(`/report/history/${logId}`),
 };
 
 // Risk APIs

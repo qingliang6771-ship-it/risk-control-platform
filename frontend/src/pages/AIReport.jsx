@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Input, Button, Card, Space, Typography, Spin, Tag, Table, Select } from 'antd';
-import { SendOutlined, RobotOutlined, UserOutlined, ClearOutlined, CodeOutlined, TableOutlined } from '@ant-design/icons';
+import { Input, Button, Card, Space, Typography, Spin, Tag, Table, Select, Drawer, List, Popconfirm, message, Badge } from 'antd';
+import { SendOutlined, RobotOutlined, UserOutlined, ClearOutlined, CodeOutlined, TableOutlined, HistoryOutlined, DeleteOutlined, MessageOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { reportAPI } from '../services/api';
 
@@ -13,6 +13,9 @@ function AIReport() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentProject, setCurrentProject] = useState('105');
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+  const [historyList, setHistoryList] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const messagesEndRef = useRef(null);
 
   const projects = [
@@ -29,6 +32,51 @@ function AIReport() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Load history on mount
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await reportAPI.getHistory(50);
+      setHistoryList(res.data || []);
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleDeleteHistory = async (logId) => {
+    try {
+      await reportAPI.deleteHistory(logId);
+      setHistoryList((prev) => prev.filter((item) => item.id !== logId));
+      message.success('已删除');
+    } catch (err) {
+      message.error('删除失败');
+    }
+  };
+
+  const handleLoadHistoryItem = (item) => {
+    // Reconstruct messages from history item
+    const msgs = [];
+    msgs.push({ role: 'user', content: item.query });
+
+    if (item.result) {
+      const parts = [];
+      if (item.result.sql) parts.push({ type: 'sql', content: item.result.sql });
+      if (item.result.data) parts.push({ type: 'data', content: item.result.data });
+      if (item.result.analysis) parts.push({ type: 'analysis', content: item.result.analysis });
+      if (item.error) parts.push({ type: 'error', content: item.error });
+      msgs.push({ role: 'assistant', content: item.result.analysis || '', parts, loading: false });
+    }
+
+    setMessages(msgs);
+    setHistoryDrawerOpen(false);
+  };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -114,6 +162,9 @@ function AIReport() {
         }
         return updated;
       });
+
+      // Refresh history after successful query
+      setTimeout(() => loadHistory(), 1000);
 
     } catch (err) {
       // Fallback to non-streaming
@@ -272,6 +323,21 @@ function AIReport() {
     );
   };
 
+  const formatTime = (isoStr) => {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return '刚刚';
+    if (diffMin < 60) return `${diffMin}分钟前`;
+    const diffHour = Math.floor(diffMin / 60);
+    if (diffHour < 24) return `${diffHour}小时前`;
+    const diffDay = Math.floor(diffHour / 24);
+    if (diffDay < 7) return `${diffDay}天前`;
+    return d.toLocaleDateString('zh-CN');
+  };
+
   return (
     <div style={{ height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column' }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -290,6 +356,11 @@ function AIReport() {
               <Option key={p.id} value={p.id}>{p.name}</Option>
             ))}
           </Select>
+          <Badge count={historyList.length} size="small" offset={[-5, 5]}>
+            <Button icon={<HistoryOutlined />} onClick={() => { setHistoryDrawerOpen(true); loadHistory(); }}>
+              历史记录
+            </Button>
+          </Badge>
           <Button icon={<ClearOutlined />} onClick={handleClear}>
             清空对话
           </Button>
@@ -421,6 +492,69 @@ function AIReport() {
           发送
         </Button>
       </div>
+
+      {/* History Drawer */}
+      <Drawer
+        title={
+          <Space>
+            <HistoryOutlined />
+            <span>查询历史记录</span>
+          </Space>
+        }
+        placement="right"
+        width={420}
+        open={historyDrawerOpen}
+        onClose={() => setHistoryDrawerOpen(false)}
+      >
+        {historyLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : historyList.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Text type="secondary">暂无历史记录</Text>
+          </div>
+        ) : (
+          <List
+            dataSource={historyList}
+            renderItem={(item) => (
+              <List.Item
+                style={{ cursor: 'pointer', padding: '12px 8px', borderRadius: 8 }}
+                actions={[
+                  <Popconfirm
+                    key="delete"
+                    title="确定删除？"
+                    onConfirm={(e) => { e.stopPropagation(); handleDeleteHistory(item.id); }}
+                    okText="删除"
+                    cancelText="取消"
+                  >
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()} />
+                  </Popconfirm>
+                ]}
+                onClick={() => handleLoadHistoryItem(item)}
+              >
+                <List.Item.Meta
+                  avatar={<MessageOutlined style={{ fontSize: 18, color: '#1890ff', marginTop: 4 }} />}
+                  title={
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text ellipsis style={{ maxWidth: 240, fontSize: 13 }}>{item.query}</Text>
+                      <Tag color={item.status === 'success' ? 'green' : 'red'} style={{ fontSize: 11 }}>
+                        {item.status === 'success' ? '成功' : '失败'}
+                      </Tag>
+                    </div>
+                  }
+                  description={
+                    <Space size={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(item.created_at)}</Text>
+                      {item.duration_ms && (
+                        <Text type="secondary" style={{ fontSize: 11 }}>耗时 {(item.duration_ms / 1000).toFixed(1)}s</Text>
+                      )}
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }
