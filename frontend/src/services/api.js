@@ -37,7 +37,7 @@ export const authAPI = {
 export const reportAPI = {
   generateReport: (query, context = null) =>
     api.post('/report/generate', { query, context }),
-  chatStream: async (query, history = null) => {
+  chatStream: async (query, sessionId = null, history = null) => {
     const token = localStorage.getItem('token');
     const response = await fetch('/api/report/chat/stream', {
       method: 'POST',
@@ -45,10 +45,18 @@ export const reportAPI = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ query, history }),
+      body: JSON.stringify({ query, session_id: sessionId, history }),
     });
     return response;
   },
+  // Session APIs
+  listSessions: () => api.get('/report/sessions'),
+  createSession: (title = '新对话', projectId = '105') =>
+    api.post('/report/sessions', { title, project_id: projectId }),
+  getSession: (sessionId) => api.get(`/report/sessions/${sessionId}`),
+  updateSession: (sessionId, data) => api.put(`/report/sessions/${sessionId}`, data),
+  deleteSession: (sessionId) => api.delete(`/report/sessions/${sessionId}`),
+  // Legacy history
   getHistory: (limit = 50) => api.get(`/report/history?limit=${limit}`),
   deleteHistory: (logId) => api.delete(`/report/history/${logId}`),
 };

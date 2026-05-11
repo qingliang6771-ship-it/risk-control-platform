@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Input, Button, Card, Space, Typography, Spin, Tag, Table, Select, Drawer, List, Popconfirm, message, Badge } from 'antd';
-import { SendOutlined, RobotOutlined, UserOutlined, ClearOutlined, CodeOutlined, TableOutlined, HistoryOutlined, DeleteOutlined, MessageOutlined } from '@ant-design/icons';
+import { Input, Button, Card, Space, Typography, Spin, Tag, Table, Select, List, Popconfirm, message, Empty } from 'antd';
+import { SendOutlined, RobotOutlined, UserOutlined, PlusOutlined, CodeOutlined, TableOutlined, DeleteOutlined, MessageOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { reportAPI } from '../services/api';
 
@@ -9,13 +9,15 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 
 function AIReport() {
+  const [sessions, setSessions] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const [currentProject, setCurrentProject] = useState('105');
-  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
-  const [historyList, setHistoryList] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(null);
+  const [editTitleValue, setEditTitleValue] = useState('');
   const messagesEndRef = useRef(null);
 
   const projects = [
@@ -33,53 +35,94 @@ function AIReport() {
     scrollToBottom();
   }, [messages]);
 
-  // Load history on mount
+  // Load sessions on mount
   useEffect(() => {
-    loadHistory();
+    loadSessions();
   }, []);
 
-  const loadHistory = async () => {
-    setHistoryLoading(true);
+  const loadSessions = async () => {
+    setSessionsLoading(true);
     try {
-      const res = await reportAPI.getHistory(50);
-      setHistoryList(res.data || []);
+      const res = await reportAPI.listSessions();
+      setSessions(res.data || []);
+      // Auto-select the most recent session if none selected
+      if (!currentSessionId && res.data && res.data.length > 0) {
+        await switchToSession(res.data[0].id);
+      }
     } catch (err) {
-      console.error('Failed to load history:', err);
+      console.error('Failed to load sessions:', err);
     } finally {
-      setHistoryLoading(false);
+      setSessionsLoading(false);
     }
   };
 
-  const handleDeleteHistory = async (logId) => {
+  const switchToSession = async (sessionId) => {
     try {
-      await reportAPI.deleteHistory(logId);
-      setHistoryList((prev) => prev.filter((item) => item.id !== logId));
+      const res = await reportAPI.getSession(sessionId);
+      setCurrentSessionId(sessionId);
+      setMessages(res.data.messages || []);
+      if (res.data.project_id) {
+        setCurrentProject(res.data.project_id);
+      }
+    } catch (err) {
+      message.error('加载会话失败');
+    }
+  };
+
+  const handleNewSession = async () => {
+    try {
+      const res = await reportAPI.createSession('新对话', currentProject);
+      const newSession = res.data;
+      setSessions((prev) => [{ ...newSession, message_count: 0 }, ...prev]);
+      setCurrentSessionId(newSession.id);
+      setMessages([]);
+    } catch (err) {
+      message.error('创建会话失败');
+    }
+  };
+
+  const handleDeleteSession = async (sessionId, e) => {
+    e?.stopPropagation();
+    try {
+      await reportAPI.deleteSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
       message.success('已删除');
     } catch (err) {
       message.error('删除失败');
     }
   };
 
-  const handleLoadHistoryItem = (item) => {
-    // Reconstruct messages from history item
-    const msgs = [];
-    msgs.push({ role: 'user', content: item.query });
-
-    if (item.result) {
-      const parts = [];
-      if (item.result.sql) parts.push({ type: 'sql', content: item.result.sql });
-      if (item.result.data) parts.push({ type: 'data', content: item.result.data });
-      if (item.result.analysis) parts.push({ type: 'analysis', content: item.result.analysis });
-      if (item.error) parts.push({ type: 'error', content: item.error });
-      msgs.push({ role: 'assistant', content: item.result.analysis || '', parts, loading: false });
+  const handleRenameSession = async (sessionId) => {
+    if (!editTitleValue.trim()) return;
+    try {
+      await reportAPI.updateSession(sessionId, { title: editTitleValue.trim() });
+      setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title: editTitleValue.trim() } : s));
+      setEditingTitle(null);
+    } catch (err) {
+      message.error('重命名失败');
     }
-
-    setMessages(msgs);
-    setHistoryDrawerOpen(false);
   };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
+
+    // If no session, create one first
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      try {
+        const res = await reportAPI.createSession('新对话', currentProject);
+        sessionId = res.data.id;
+        setSessions((prev) => [{ ...res.data, message_count: 0 }, ...prev]);
+        setCurrentSessionId(sessionId);
+      } catch (err) {
+        message.error('创建会话失败');
+        return;
+      }
+    }
 
     const userMessage = { role: 'user', content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
@@ -87,13 +130,9 @@ function AIReport() {
     setLoading(true);
 
     try {
-      // 在查询中附加项目信息
       const queryWithProject = `[项目${currentProject}] ${userMessage.content}`;
       
-      const response = await reportAPI.chatStream(
-        queryWithProject,
-        messages.filter(m => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: typeof m.content === 'string' ? m.content : '(数据结果)' }))
-      );
+      const response = await reportAPI.chatStream(queryWithProject, sessionId);
 
       if (!response.ok) {
         throw new Error('Stream request failed');
@@ -102,9 +141,8 @@ function AIReport() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let parts = []; // 收集各部分内容
+      let parts = [];
 
-      // 添加一个占位消息
       setMessages((prev) => [...prev, { role: 'assistant', content: '', parts: [], loading: true }]);
 
       while (true) {
@@ -113,7 +151,7 @@ function AIReport() {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // 保留未完成的行
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -135,7 +173,6 @@ function AIReport() {
                 parts = [...parts, { type: 'error', content: data.content }];
               }
               
-              // 更新消息
               setMessages((prev) => {
                 const updated = [...prev];
                 updated[updated.length - 1] = {
@@ -147,14 +184,12 @@ function AIReport() {
                 return updated;
               });
             } catch (e) {
-              // 非 JSON 数据，忽略
               console.warn('Failed to parse SSE data:', dataStr);
             }
           }
         }
       }
 
-      // 标记完成
       setMessages((prev) => {
         const updated = [...prev];
         if (updated.length > 0) {
@@ -163,11 +198,10 @@ function AIReport() {
         return updated;
       });
 
-      // Refresh history after successful query
-      setTimeout(() => loadHistory(), 1000);
+      // Refresh sessions list to update title/count
+      setTimeout(() => loadSessions(), 500);
 
     } catch (err) {
-      // Fallback to non-streaming
       try {
         const queryWithProject = `[项目${currentProject}] ${userMessage.content}`;
         const res = await reportAPI.generateReport(queryWithProject);
@@ -200,10 +234,6 @@ function AIReport() {
     }
   };
 
-  const handleClear = () => {
-    setMessages([]);
-  };
-
   const suggestedQueries = [
     '查询今天的活跃用户数',
     '查询今天的充值总金额和充值人数',
@@ -211,58 +241,38 @@ function AIReport() {
     '查询今天提现金额TOP10用户',
   ];
 
-  // 渲染数据表格
   const renderDataTable = (data) => {
     if (!data || !data.headers || !data.rows || data.rows.length === 0) {
       return <Text type="secondary">无数据</Text>;
     }
-
     const columns = data.headers.map((header, idx) => ({
-      title: header,
-      dataIndex: idx.toString(),
-      key: idx.toString(),
-      ellipsis: true,
+      title: header, dataIndex: idx.toString(), key: idx.toString(), ellipsis: true,
     }));
-
     const dataSource = data.rows.slice(0, 50).map((row, rowIdx) => {
       const record = { key: rowIdx };
-      row.forEach((cell, cellIdx) => {
-        record[cellIdx.toString()] = cell;
-      });
+      row.forEach((cell, cellIdx) => { record[cellIdx.toString()] = cell; });
       return record;
     });
-
     return (
-      <Table
-        columns={columns}
-        dataSource={dataSource}
-        size="small"
+      <Table columns={columns} dataSource={dataSource} size="small"
         pagination={data.rows.length > 10 ? { pageSize: 10 } : false}
-        scroll={{ x: 'max-content' }}
-        style={{ marginTop: 8 }}
-      />
+        scroll={{ x: 'max-content' }} style={{ marginTop: 8 }} />
     );
   };
 
-  // 渲染助手消息的各部分
   const renderAssistantMessage = (msg) => {
     const parts = msg.parts || [];
-    
     if (parts.length === 0 && msg.content) {
       return <ReactMarkdown>{msg.content}</ReactMarkdown>;
     }
-
     return (
-      <div className="assistant-message-parts">
+      <div>
         {parts.map((part, idx) => {
           switch (part.type) {
             case 'status':
               return (
                 <div key={idx} style={{ marginBottom: 8 }}>
-                  <Text type="secondary">
-                    <Spin size="small" style={{ marginRight: 8 }} />
-                    {part.content}
-                  </Text>
+                  <Text type="secondary"><Spin size="small" style={{ marginRight: 8 }} />{part.content}</Text>
                 </div>
               );
             case 'sql':
@@ -272,16 +282,7 @@ function AIReport() {
                     <CodeOutlined style={{ marginRight: 6, color: '#722ed1' }} />
                     <Text strong style={{ fontSize: 12, color: '#722ed1' }}>执行的SQL</Text>
                   </div>
-                  <pre style={{
-                    background: '#1e1e1e',
-                    color: '#d4d4d4',
-                    padding: '12px 16px',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    overflow: 'auto',
-                    maxHeight: 150,
-                    margin: 0,
-                  }}>
+                  <pre style={{ background: '#1e1e1e', color: '#d4d4d4', padding: '12px 16px', borderRadius: 8, fontSize: 12, overflow: 'auto', maxHeight: 150, margin: 0 }}>
                     {part.content}
                   </pre>
                 </div>
@@ -291,9 +292,7 @@ function AIReport() {
                 <div key={idx} style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
                     <TableOutlined style={{ marginRight: 6, color: '#13c2c2' }} />
-                    <Text strong style={{ fontSize: 12, color: '#13c2c2' }}>
-                      查询结果 ({part.content?.total_rows || 0} 行)
-                    </Text>
+                    <Text strong style={{ fontSize: 12, color: '#13c2c2' }}>查询结果 ({part.content?.total_rows || 0} 行)</Text>
                   </div>
                   {renderDataTable(part.content)}
                 </div>
@@ -301,14 +300,12 @@ function AIReport() {
             case 'analysis':
               return (
                 <div key={idx} style={{ marginBottom: 8 }}>
-                  <div className="markdown-content">
-                    <ReactMarkdown>{part.content}</ReactMarkdown>
-                  </div>
+                  <div className="markdown-content"><ReactMarkdown>{part.content}</ReactMarkdown></div>
                 </div>
               );
             case 'error':
               return (
-                <div key={idx} style={{ marginBottom: 8, color: '#ff4d4f' }}>
+                <div key={idx} style={{ marginBottom: 8 }}>
                   <Text type="danger">❌ {part.content}</Text>
                 </div>
               );
@@ -316,9 +313,7 @@ function AIReport() {
               return null;
           }
         })}
-        {msg.loading && parts[parts.length - 1]?.type !== 'status' && (
-          <Spin size="small" />
-        )}
+        {msg.loading && parts[parts.length - 1]?.type !== 'status' && <Spin size="small" />}
       </div>
     );
   };
@@ -339,222 +334,173 @@ function AIReport() {
   };
 
   return (
-    <div style={{ height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <RobotOutlined style={{ fontSize: 20, color: '#1890ff' }} />
-          <Title level={4} style={{ margin: 0 }}>AI 数据报告助手</Title>
-          <Tag color="blue">接入数数API + AI分析</Tag>
-        </Space>
-        <Space>
-          <Select
-            value={currentProject}
-            onChange={setCurrentProject}
-            style={{ width: 160 }}
-          >
-            {projects.map(p => (
-              <Option key={p.id} value={p.id}>{p.name}</Option>
-            ))}
-          </Select>
-          <Badge count={historyList.length} size="small" offset={[-5, 5]}>
-            <Button icon={<HistoryOutlined />} onClick={() => { setHistoryDrawerOpen(true); loadHistory(); }}>
-              历史记录
-            </Button>
-          </Badge>
-          <Button icon={<ClearOutlined />} onClick={handleClear}>
-            清空对话
-          </Button>
-        </Space>
-      </div>
-
-      {/* Messages area */}
+    <div style={{ height: 'calc(100vh - 160px)', display: 'flex', gap: 0 }}>
+      {/* Left sidebar - Session list */}
       <div style={{
-        flex: 1,
-        overflow: 'auto',
-        padding: '16px 0',
+        width: 260,
+        borderRight: '1px solid #f0f0f0',
         display: 'flex',
         flexDirection: 'column',
+        background: '#fafafa',
+        borderRadius: '8px 0 0 8px',
+        overflow: 'hidden',
       }}>
-        {messages.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <RobotOutlined style={{ fontSize: 64, color: '#d9d9d9', marginBottom: 24 }} />
-            <Title level={4} type="secondary">你好！我是风控数据分析助手</Title>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-              我可以帮你查询数数平台数据、分析用户行为、生成风控报告。请先选择项目再提问。
-            </Text>
-            <Space wrap style={{ maxWidth: 600 }}>
-              {suggestedQueries.map((q, i) => (
-                <Tag
-                  key={i}
-                  color="blue"
-                  style={{ cursor: 'pointer', padding: '4px 12px', fontSize: 13 }}
-                  onClick={() => setInput(q)}
-                >
-                  {q}
-                </Tag>
-              ))}
-            </Space>
-          </div>
-        )}
-
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            style={{
-              display: 'flex',
-              gap: 12,
-              marginBottom: 16,
-              flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-            }}
-          >
-            <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              background: msg.role === 'user' ? '#1890ff' : '#f0f0f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}>
-              {msg.role === 'user' ? (
-                <UserOutlined style={{ color: 'white' }} />
-              ) : (
-                <RobotOutlined style={{ color: '#1890ff' }} />
-              )}
-            </div>
-            <div style={{
-              maxWidth: msg.role === 'user' ? '75%' : '85%',
-              minWidth: msg.role === 'assistant' ? '60%' : undefined,
-            }}>
-              {msg.role === 'user' ? (
-                <Card
-                  size="small"
-                  style={{ background: '#1890ff', border: 'none' }}
-                  bodyStyle={{ padding: '12px 16px', color: 'white' }}
-                >
-                  <span>{msg.content}</span>
-                </Card>
-              ) : (
-                <Card
-                  size="small"
-                  style={{ background: '#f9f9f9', border: '1px solid #f0f0f0' }}
-                  bodyStyle={{ padding: '16px' }}
-                >
-                  {renderAssistantMessage(msg)}
-                </Card>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loading && messages[messages.length - 1]?.role !== 'assistant' && (
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: '50%',
-              background: '#f0f0f0', display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-            }}>
-              <RobotOutlined style={{ color: '#1890ff' }} />
-            </div>
-            <Card size="small" style={{ background: '#f9f9f9', border: 'none' }}>
-              <Spin size="small" /> <Text type="secondary">正在思考...</Text>
-            </Card>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div style={{
-        borderTop: '1px solid #f0f0f0',
-        paddingTop: 16,
-        display: 'flex',
-        gap: 12,
-      }}>
-        <TextArea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={`当前项目: ${projects.find(p => p.id === currentProject)?.name} | 输入问题，如：查询今天的充值总金额...`}
-          autoSize={{ minRows: 1, maxRows: 4 }}
-          style={{ flex: 1, borderRadius: 8 }}
-          disabled={loading}
-        />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          loading={loading}
-          style={{ height: 'auto', borderRadius: 8 }}
-        >
-          发送
-        </Button>
-      </div>
-
-      {/* History Drawer */}
-      <Drawer
-        title={
-          <Space>
-            <HistoryOutlined />
-            <span>查询历史记录</span>
-          </Space>
-        }
-        placement="right"
-        width={420}
-        open={historyDrawerOpen}
-        onClose={() => setHistoryDrawerOpen(false)}
-      >
-        {historyLoading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-        ) : historyList.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Text type="secondary">暂无历史记录</Text>
-          </div>
-        ) : (
-          <List
-            dataSource={historyList}
-            renderItem={(item) => (
-              <List.Item
-                style={{ cursor: 'pointer', padding: '12px 8px', borderRadius: 8 }}
-                actions={[
-                  <Popconfirm
-                    key="delete"
-                    title="确定删除？"
-                    onConfirm={(e) => { e.stopPropagation(); handleDeleteHistory(item.id); }}
-                    okText="删除"
-                    cancelText="取消"
-                  >
-                    <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()} />
-                  </Popconfirm>
-                ]}
-                onClick={() => handleLoadHistoryItem(item)}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+          <Button type="primary" icon={<PlusOutlined />} block onClick={handleNewSession}>
+            新建对话
+          </Button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
+          {sessionsLoading ? (
+            <div style={{ textAlign: 'center', padding: 20 }}><Spin size="small" /></div>
+          ) : sessions.length === 0 ? (
+            <Empty description="暂无对话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          ) : (
+            sessions.map((session) => (
+              <div
+                key={session.id}
+                onClick={() => switchToSession(session.id)}
+                style={{
+                  padding: '10px 12px',
+                  marginBottom: 4,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  background: currentSessionId === session.id ? '#e6f4ff' : 'transparent',
+                  border: currentSessionId === session.id ? '1px solid #91caff' : '1px solid transparent',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => { if (currentSessionId !== session.id) e.currentTarget.style.background = '#f5f5f5'; }}
+                onMouseLeave={(e) => { if (currentSessionId !== session.id) e.currentTarget.style.background = 'transparent'; }}
               >
-                <List.Item.Meta
-                  avatar={<MessageOutlined style={{ fontSize: 18, color: '#1890ff', marginTop: 4 }} />}
-                  title={
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text ellipsis style={{ maxWidth: 240, fontSize: 13 }}>{item.query}</Text>
-                      <Tag color={item.status === 'success' ? 'green' : 'red'} style={{ fontSize: 11 }}>
-                        {item.status === 'success' ? '成功' : '失败'}
-                      </Tag>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  {editingTitle === session.id ? (
+                    <Input
+                      size="small"
+                      value={editTitleValue}
+                      onChange={(e) => setEditTitleValue(e.target.value)}
+                      onPressEnter={() => handleRenameSession(session.id)}
+                      onBlur={() => setEditingTitle(null)}
+                      autoFocus
+                      style={{ flex: 1, marginRight: 4 }}
+                    />
+                  ) : (
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                      <Text ellipsis style={{ fontSize: 13, fontWeight: currentSessionId === session.id ? 500 : 400 }}>
+                        <MessageOutlined style={{ marginRight: 6, color: '#1890ff', fontSize: 12 }} />
+                        {session.title}
+                      </Text>
                     </div>
-                  }
-                  description={
-                    <Space size={12}>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(item.created_at)}</Text>
-                      {item.duration_ms && (
-                        <Text type="secondary" style={{ fontSize: 11 }}>耗时 {(item.duration_ms / 1000).toFixed(1)}s</Text>
-                      )}
+                  )}
+                  {currentSessionId === session.id && editingTitle !== session.id && (
+                    <Space size={2}>
+                      <Button type="text" size="small" icon={<EditOutlined style={{ fontSize: 11 }} />}
+                        onClick={(e) => { e.stopPropagation(); setEditingTitle(session.id); setEditTitleValue(session.title); }} />
+                      <Popconfirm title="确定删除此对话？" onConfirm={(e) => handleDeleteSession(session.id, e)} okText="删除" cancelText="取消">
+                        <Button type="text" size="small" danger icon={<DeleteOutlined style={{ fontSize: 11 }} />}
+                          onClick={(e) => e.stopPropagation()} />
+                      </Popconfirm>
                     </Space>
-                  }
-                />
-              </List.Item>
-            )}
+                  )}
+                </div>
+                <div style={{ marginTop: 2 }}>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {session.message_count > 0 ? `${Math.floor(session.message_count / 2)} 条问答` : '空对话'}
+                    {' · '}
+                    {formatTime(session.updated_at || session.created_at)}
+                  </Text>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Right - Chat area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 0 0 16px' }}>
+        {/* Header */}
+        <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 4 }}>
+          <Space>
+            <RobotOutlined style={{ fontSize: 18, color: '#1890ff' }} />
+            <Title level={5} style={{ margin: 0 }}>AI 数据报告助手</Title>
+            <Tag color="blue" style={{ fontSize: 11 }}>多轮对话 · 记忆保持</Tag>
+          </Space>
+          <Select value={currentProject} onChange={setCurrentProject} style={{ width: 150 }} size="small">
+            {projects.map(p => <Option key={p.id} value={p.id}>{p.name}</Option>)}
+          </Select>
+        </div>
+
+        {/* Messages */}
+        <div style={{ flex: 1, overflow: 'auto', paddingRight: 8 }}>
+          {messages.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '50px 0' }}>
+              <RobotOutlined style={{ fontSize: 56, color: '#d9d9d9', marginBottom: 20 }} />
+              <Title level={5} type="secondary">开始新的数据分析对话</Title>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+                在同一对话中持续追问，AI 会记住上下文。点击左侧"新建对话"开启新话题。
+              </Text>
+              <Space wrap style={{ maxWidth: 500 }}>
+                {suggestedQueries.map((q, i) => (
+                  <Tag key={i} color="blue" style={{ cursor: 'pointer', padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => setInput(q)}>
+                    {q}
+                  </Tag>
+                ))}
+              </Space>
+            </div>
+          )}
+
+          {messages.map((msg, index) => (
+            <div key={index} style={{ display: 'flex', gap: 10, marginBottom: 14, flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                background: msg.role === 'user' ? '#1890ff' : '#f0f0f0',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {msg.role === 'user' ? <UserOutlined style={{ color: 'white', fontSize: 14 }} /> : <RobotOutlined style={{ color: '#1890ff', fontSize: 14 }} />}
+              </div>
+              <div style={{ maxWidth: msg.role === 'user' ? '70%' : '82%', minWidth: msg.role === 'assistant' ? '55%' : undefined }}>
+                {msg.role === 'user' ? (
+                  <Card size="small" style={{ background: '#1890ff', border: 'none' }} bodyStyle={{ padding: '10px 14px', color: 'white' }}>
+                    <span style={{ fontSize: 13 }}>{msg.content}</span>
+                  </Card>
+                ) : (
+                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0' }} bodyStyle={{ padding: '14px' }}>
+                    {renderAssistantMessage(msg)}
+                  </Card>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {loading && messages[messages.length - 1]?.role !== 'assistant' && (
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <RobotOutlined style={{ color: '#1890ff', fontSize: 14 }} />
+              </div>
+              <Card size="small" style={{ background: '#f9f9f9', border: 'none' }}>
+                <Spin size="small" /> <Text type="secondary">正在思考...</Text>
+              </Card>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input */}
+        <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, display: 'flex', gap: 10 }}>
+          <TextArea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={`当前项目: ${projects.find(p => p.id === currentProject)?.name} | 输入问题，可持续追问...`}
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            style={{ flex: 1, borderRadius: 8 }}
+            disabled={loading}
           />
-        )}
-      </Drawer>
+          <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={loading} style={{ height: 'auto', borderRadius: 8 }}>
+            发送
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
