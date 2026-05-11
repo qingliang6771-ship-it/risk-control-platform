@@ -185,8 +185,6 @@ async def chat_stream(request: ChatStreamRequest, db: AsyncSession = Depends(get
                             # Auto-title from first query
                             if session.title == "新对话" and len(msgs) <= 2:
                                 session.title = request.query[:30] + ("..." if len(request.query) > 30 else "")
-                            from sqlalchemy.orm.attributes import flag_modified
-                            flag_modified(session, "messages")
                             await db.commit()
                     except Exception as e:
                         print(f"Failed to save session: {e}")
