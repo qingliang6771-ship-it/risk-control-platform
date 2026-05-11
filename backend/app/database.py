@@ -22,8 +22,12 @@ async def get_db():
 async def init_db():
     # Import all models to ensure they are registered with Base.metadata
     from .models import User, QueryLog, ChatSession  # noqa: F401
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        # Ignore errors from concurrent workers trying to create tables
+        print(f"init_db warning (safe to ignore if tables exist): {e}")
 
 
 async def close_db():
