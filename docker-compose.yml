@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  risk-platform:
+    build: .
+    container_name: risk-control-platform
+    ports:
+      - "80:80"
+    env_file:
+      - backend/.env
+    environment:
+      - FRONTEND_URL=http://your-server-ip
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
