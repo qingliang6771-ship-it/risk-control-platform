@@ -458,14 +458,16 @@ function AIReport() {
               }}>
                 {msg.role === 'user' ? <UserOutlined style={{ color: 'white', fontSize: 14 }} /> : <RobotOutlined style={{ color: '#1890ff', fontSize: 14 }} />}
               </div>
-              <div style={{ maxWidth: msg.role === 'user' ? '70%' : '82%', minWidth: msg.role === 'assistant' ? '55%' : undefined }}>
+              <div style={{ maxWidth: msg.role === 'user' ? '70%' : '82%', minWidth: msg.role === 'assistant' ? '55%' : undefined, overflow: 'hidden' }}>
                 {msg.role === 'user' ? (
                   <Card size="small" style={{ background: '#1890ff', border: 'none' }} bodyStyle={{ padding: '10px 14px', color: 'white' }}>
                     <span style={{ fontSize: 13 }}>{msg.content}</span>
                   </Card>
                 ) : (
-                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0' }} bodyStyle={{ padding: '14px' }}>
-                    {renderAssistantMessage(msg)}
+                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0', overflow: 'hidden' }} bodyStyle={{ padding: '14px', overflow: 'auto' }}>
+                    <div className="markdown-content">
+                      {renderAssistantMessage(msg)}
+                    </div>
                   </Card>
                 )}
               </div>

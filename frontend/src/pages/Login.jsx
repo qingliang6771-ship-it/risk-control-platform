@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Card, Typography, Space, message } from 'antd';
+import { Button, Card, Typography, Space, Spin } from 'antd';
 import { SafetyOutlined } from '@ant-design/icons';
 import { authAPI } from '../services/api';
 
@@ -12,9 +12,10 @@ function Login() {
     setLoading(true);
     try {
       const res = await authAPI.getLarkLoginUrl();
-      window.location.href = res.data.login_url;
+      const loginUrl = res.data.login_url;
+      window.location.href = loginUrl;
     } catch (err) {
-      message.error('获取登录链接失败，请稍后重试');
+      console.error('Failed to get login URL:', err);
       setLoading(false);
     }
   };
@@ -27,47 +28,27 @@ function Login() {
       justifyContent: 'center',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     }}>
-      <Card
-        style={{
-          width: 420,
-          borderRadius: 12,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-        }}
-        bodyStyle={{ padding: '48px 40px' }}
-      >
-        <Space direction="vertical" size="large" style={{ width: '100%', textAlign: 'center' }}>
-          <SafetyOutlined style={{ fontSize: 48, color: '#1890ff' }} />
-          <Title level={2} style={{ margin: 0 }}>风控后台</Title>
-          <Text type="secondary">
-            内部风控数据平台 · 仅限公司内部人员使用
-          </Text>
-
-          <div style={{ marginTop: 32 }}>
-            <Button
-              type="primary"
-              size="large"
-              block
-              loading={loading}
-              onClick={handleLarkLogin}
-              style={{
-                height: 48,
-                fontSize: 16,
-                borderRadius: 8,
-                background: '#3370ff',
-                borderColor: '#3370ff',
-              }}
-            >
-              <img
-                src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkw0IDdsMiAxMCA2IDVoMGw2LTUgMi0xMEwxMiAyeiIgZmlsbD0id2hpdGUiLz48L3N2Zz4="
-                alt="Lark"
-                style={{ width: 20, height: 20, marginRight: 8, verticalAlign: 'middle' }}
-              />
-              使用 Lark 登录
-            </Button>
+      <Card style={{ width: 400, textAlign: 'center', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <div>
+            <SafetyOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
+            <Title level={3} style={{ margin: 0 }}>风控数据平台</Title>
+            <Text type="secondary">内部风控后台系统</Text>
           </div>
 
+          <Button
+            type="primary"
+            size="large"
+            block
+            onClick={handleLarkLogin}
+            loading={loading}
+            style={{ height: 48, fontSize: 16, borderRadius: 8 }}
+          >
+            {loading ? '正在跳转...' : '使用飞书登录'}
+          </Button>
+
           <Text type="secondary" style={{ fontSize: 12 }}>
-            请使用公司 Lark 账号登录，未授权人员无法访问
+            仅限公司内部员工通过飞书账号登录
           </Text>
         </Space>
       </Card>

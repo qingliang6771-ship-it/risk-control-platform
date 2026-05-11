@@ -73,3 +73,70 @@ body {
   background: none;
   padding: 0;
 }
+
+/* Markdown content auto-wrap */
+.markdown-content {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  max-width: 100%;
+}
+
+.markdown-content p,
+.markdown-content li,
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  border: 1px solid #e8e8e8;
+  padding: 6px 10px;
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.markdown-content table th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.markdown-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.markdown-content code {
+  word-break: break-all;
+}
+
+/* Assistant message card overflow control */
+.ant-card {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ant-card-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
