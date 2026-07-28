@@ -20,6 +20,27 @@ class AIReportService:
         )
         self.model = settings.AI_MODEL
 
+    async def list_models(self) -> list[str]:
+        """Fetch available model IDs from the AI provider. Falls back to a preset list."""
+        try:
+            resp = await self.client.models.list()
+            models = sorted([m.id for m in resp.data])
+            if models:
+                return models
+        except Exception as e:
+            print(f"Failed to list models: {e}")
+        # Fallback preset list
+        return [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-5",
+        ]
+
+
     def _extract_project_id(self, query: str) -> tuple[str, str]:
         """Extract project ID from query prefix like [项目105] or from natural language."""
         # Project keyword mapping
@@ -56,15 +77,18 @@ class AIReportService:
         
         return "105", query  # default to 105
 
-    async def generate_report(self, user_question: str) -> dict:
+    async def generate_report(self, user_question: str, model: str = None) -> dict:
         """
         Main entry: user asks a question in natural language,
         AI generates SQL, queries ThinkingData, then AI summarizes the result.
+        `model` optionally overrides the default AI model.
         """
+        model = model or self.model
         project_id, clean_question = self._extract_project_id(user_question)
 
         # Step 1: AI generates SQL based on user question
-        sql = await self._generate_sql(clean_question, project_id)
+        sql = await self._generate_sql(clean_question, project_id, model)
+
 
         # Step 2: Execute SQL on ThinkingData
         try:
@@ -79,7 +103,8 @@ class AIReportService:
             }
 
         # Step 3: AI analyzes the query result
-        analysis = await self._analyze_data(clean_question, sql, query_result, project_id)
+        analysis = await self._analyze_data(clean_question, sql, query_result, project_id, model)
+
 
         return {
             "question": clean_question,
@@ -113,8 +138,10 @@ class AIReportService:
                 "error": str(e),
             }
 
-    async def _generate_sql(self, user_question: str, project_id: str = "105") -> str:
+    async def _generate_sql(self, user_question: str, project_id: str = "105", model: str = None) -> str:
         """Use AI to generate SQL from natural language question."""
+        model = model or self.model
+
         project_name = PROJECTS.get(project_id, "未知项目")
 
         system_prompt = f"""你是一个数据分析专家，负责将用户的自然语言问题转换为 ThinkingData SQL 查询语句。
@@ -159,7 +186,7 @@ class AIReportService:
 - 查最近7天提现申请: SELECT "#account_id", "#event_time", "amount", "payment_method" FROM v_event_{project_id} WHERE "#event_name" = 'withdraw_apply' AND "$part_date" >= cast(current_date - interval '7' day as varchar) ORDER BY "#event_time" DESC LIMIT 100"""
 
         response = await self.client.chat.completions.create(
-            model=self.model,
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_question},
@@ -231,8 +258,9 @@ class AIReportService:
             sql = sql.rstrip(';') + ' WHERE "$part_date" >= cast(current_date - interval \'7\' day as varchar)'
         return sql
 
-    async def _analyze_data(self, question: str, sql: str, data: dict, project_id: str = "105") -> str:
+    async def _analyze_data(self, question: str, sql: str, data: dict, project_id: str = "105", model: str = None) -> str:
         """Use AI to analyze query results and provide insights."""
+        model = model or self.model
         project_name = PROJECTS.get(project_id, "未知项目")
 
         # Prepare data summary for AI
@@ -264,7 +292,7 @@ class AIReportService:
 {json.dumps(data_summary['sample_rows'], ensure_ascii=False, indent=2)}"""
 
         response = await self.client.chat.completions.create(
-            model=self.model,
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},

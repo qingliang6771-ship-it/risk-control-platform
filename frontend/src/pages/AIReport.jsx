@@ -18,7 +18,12 @@ function AIReport() {
   const [currentProject, setCurrentProject] = useState('105');
   const [editingTitle, setEditingTitle] = useState(null);
   const [editTitleValue, setEditTitleValue] = useState('');
+  const [models, setModels] = useState([]);
+  const [currentModel, setCurrentModel] = useState(
+    () => localStorage.getItem('ai_model') || ''
+  );
   const messagesEndRef = useRef(null);
+
 
   const projects = [
     { id: '102', name: '黄老师 (102)' },
@@ -38,7 +43,29 @@ function AIReport() {
   // Load sessions on mount
   useEffect(() => {
     loadSessions();
+    loadModels();
   }, []);
+
+  const loadModels = async () => {
+    try {
+      const res = await reportAPI.getModels();
+      const list = res.data?.models || [];
+      setModels(list);
+      // If no model chosen yet, default to backend default (empty = use backend default)
+      if (!localStorage.getItem('ai_model') && res.data?.default) {
+        setCurrentModel(res.data.default);
+        localStorage.setItem('ai_model', res.data.default);
+      }
+    } catch (err) {
+      console.error('Failed to load models:', err);
+    }
+  };
+
+  const handleModelChange = (value) => {
+    setCurrentModel(value);
+    localStorage.setItem('ai_model', value || '');
+  };
+
 
   const loadSessions = async () => {
     setSessionsLoading(true);
@@ -132,7 +159,8 @@ function AIReport() {
     try {
       const queryWithProject = `[项目${currentProject}] ${userMessage.content}`;
       
-      const response = await reportAPI.chatStream(queryWithProject, sessionId);
+      const response = await reportAPI.chatStream(queryWithProject, sessionId, null, currentModel || null);
+
 
       if (!response.ok) {
         throw new Error('Stream request failed');
@@ -254,11 +282,9 @@ function AIReport() {
       return record;
     });
     return (
-      <div style={{ maxWidth: '100%', overflowX: 'auto', marginTop: 8 }}>
-        <Table columns={columns} dataSource={dataSource} size="small"
-          pagination={data.rows.length > 10 ? { pageSize: 10 } : false}
-          scroll={{ x: 'max-content' }} />
-      </div>
+      <Table columns={columns} dataSource={dataSource} size="small"
+        pagination={data.rows.length > 10 ? { pageSize: 10 } : false}
+        scroll={{ x: 'max-content' }} style={{ marginTop: 8 }} />
     );
   };
 
@@ -426,10 +452,25 @@ function AIReport() {
             <Title level={5} style={{ margin: 0 }}>AI 数据报告助手</Title>
             <Tag color="blue" style={{ fontSize: 11 }}>多轮对话 · 记忆保持</Tag>
           </Space>
-          <Select value={currentProject} onChange={setCurrentProject} style={{ width: 150 }} size="small">
-            {projects.map(p => <Option key={p.id} value={p.id}>{p.name}</Option>)}
-          </Select>
+          <Space size={8}>
+            <Select
+              value={currentModel || undefined}
+              onChange={handleModelChange}
+              style={{ width: 200 }}
+              size="small"
+              showSearch
+              placeholder="选择模型"
+              suffixIcon={<RobotOutlined style={{ color: '#722ed1' }} />}
+              optionFilterProp="children"
+            >
+              {models.map(m => <Option key={m} value={m}>{m}</Option>)}
+            </Select>
+            <Select value={currentProject} onChange={setCurrentProject} style={{ width: 150 }} size="small">
+              {projects.map(p => <Option key={p.id} value={p.id}>{p.name}</Option>)}
+            </Select>
+          </Space>
         </div>
+
 
         {/* Messages */}
         <div style={{ flex: 1, overflow: 'auto', paddingRight: 8 }}>
@@ -466,8 +507,8 @@ function AIReport() {
                     <span style={{ fontSize: 13 }}>{msg.content}</span>
                   </Card>
                 ) : (
-                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0', overflow: 'hidden', maxWidth: '100%' }} bodyStyle={{ padding: '14px', overflow: 'hidden', maxWidth: '100%' }}>
-                    <div className="markdown-content" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0', overflow: 'hidden' }} bodyStyle={{ padding: '14px', overflow: 'auto' }}>
+                    <div className="markdown-content">
                       {renderAssistantMessage(msg)}
                     </div>
                   </Card>

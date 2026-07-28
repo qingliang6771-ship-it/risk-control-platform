@@ -35,9 +35,10 @@ export const authAPI = {
 
 // Report APIs
 export const reportAPI = {
-  generateReport: (query, context = null) =>
-    api.post('/report/generate', { query, context }),
-  chatStream: async (query, sessionId = null, history = null) => {
+  getModels: () => api.get('/report/models'),
+  generateReport: (query, context = null, model = null) =>
+    api.post('/report/generate', { query, context, model }),
+  chatStream: async (query, sessionId = null, history = null, model = null) => {
     const token = localStorage.getItem('token');
     const response = await fetch('/api/report/chat/stream', {
       method: 'POST',
@@ -45,10 +46,11 @@ export const reportAPI = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ query, session_id: sessionId, history }),
+      body: JSON.stringify({ query, session_id: sessionId, history, model }),
     });
     return response;
   },
+
   // Session APIs
   listSessions: () => api.get('/report/sessions'),
   createSession: (title = '新对话', projectId = '105') =>

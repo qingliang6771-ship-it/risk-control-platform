@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     # AI Service
     AI_API_KEY: str = ""
     AI_BASE_URL: str = "https://api.servetokens.com/v1"
-    AI_MODEL: str = "gpt-4o"
+    AI_MODEL: str = "claude-sonnet-4-6"
+
 
     # ThinkingData (数数) API
     TA_API_URL: str = "https://your-ta-instance.thinkingdata.cn"

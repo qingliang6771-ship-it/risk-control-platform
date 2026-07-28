@@ -28,12 +28,15 @@ class SQLRequest(BaseModel):
 class GenerateRequest(BaseModel):
     query: str
     context: Optional[str] = None
+    model: Optional[str] = None
 
 
 class ChatStreamRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     history: Optional[List[dict]] = None
+    model: Optional[str] = None
+
 
 
 class SessionCreateRequest(BaseModel):
@@ -133,14 +136,25 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
 # ==================== Chat APIs ====================
 
+@router.get("/models")
+async def list_models():
+    """Return available AI models and the current default model."""
+    try:
+        models = await ai_report_service.list_models()
+        return {"models": models, "default": ai_report_service.model}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/generate")
 async def generate_report(request: GenerateRequest):
     """AI-powered data query: natural language -> SQL -> ThinkingData -> AI analysis."""
     try:
-        result = await ai_report_service.generate_report(request.query)
+        result = await ai_report_service.generate_report(request.query, model=request.model)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/chat/stream")
@@ -153,7 +167,8 @@ async def chat_stream(request: ChatStreamRequest, db: AsyncSession = Depends(get
             full_result = {}
             try:
                 yield f"data: {json.dumps({'type': 'status', 'content': '正在分析您的问题...'}, ensure_ascii=False)}\n\n"
-                result = await ai_report_service.generate_report(request.query)
+                result = await ai_report_service.generate_report(request.query, model=request.model)
+
                 full_result = result
                 if result.get("sql"):
                     yield f"data: {json.dumps({'type': 'sql', 'content': result['sql']}, ensure_ascii=False)}\n\n"
