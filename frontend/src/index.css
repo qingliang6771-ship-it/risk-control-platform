@@ -96,9 +96,9 @@ body {
 }
 
 .markdown-content table {
-  display: block;
+  width: 100%;
   max-width: 100%;
-  overflow-x: auto;
+  table-layout: fixed;
   border-collapse: collapse;
   margin: 8px 0;
   font-size: 13px;
@@ -108,10 +108,11 @@ body {
 .markdown-content table td {
   border: 1px solid #e8e8e8;
   padding: 6px 10px;
-  white-space: nowrap;
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  vertical-align: top;
 }
 
 .markdown-content table th {
@@ -121,22 +122,27 @@ body {
 
 .markdown-content pre {
   max-width: 100%;
-  overflow-x: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-content code {
   word-break: break-all;
+  white-space: pre-wrap;
 }
 
-/* Assistant message card overflow control */
+/* Assistant message card overflow control - 严格限制宽度不超屏 */
 .ant-card {
   max-width: 100%;
   overflow: hidden;
 }
 
 .ant-card-body {
-  overflow-x: auto;
+  max-width: 100%;
+  overflow-x: hidden;
   overflow-y: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }

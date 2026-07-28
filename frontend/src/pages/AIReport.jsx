@@ -254,9 +254,11 @@ function AIReport() {
       return record;
     });
     return (
-      <Table columns={columns} dataSource={dataSource} size="small"
-        pagination={data.rows.length > 10 ? { pageSize: 10 } : false}
-        scroll={{ x: 'max-content' }} style={{ marginTop: 8 }} />
+      <div style={{ maxWidth: '100%', overflowX: 'auto', marginTop: 8 }}>
+        <Table columns={columns} dataSource={dataSource} size="small"
+          pagination={data.rows.length > 10 ? { pageSize: 10 } : false}
+          scroll={{ x: 'max-content' }} />
+      </div>
     );
   };
 
@@ -464,8 +466,8 @@ function AIReport() {
                     <span style={{ fontSize: 13 }}>{msg.content}</span>
                   </Card>
                 ) : (
-                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0', overflow: 'hidden' }} bodyStyle={{ padding: '14px', overflow: 'auto' }}>
-                    <div className="markdown-content">
+                  <Card size="small" style={{ background: '#f9f9f9', border: '1px solid #f0f0f0', overflow: 'hidden', maxWidth: '100%' }} bodyStyle={{ padding: '14px', overflow: 'hidden', maxWidth: '100%' }}>
+                    <div className="markdown-content" style={{ maxWidth: '100%', overflow: 'hidden' }}>
                       {renderAssistantMessage(msg)}
                     </div>
                   </Card>
