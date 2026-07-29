@@ -1,193 +1,196 @@
-# 🚀 风控后台部署指南
+# 风控后台 · 服务器部署指南
 
-## 一键部署到云服务器
+本项目采用 **单容器（Docker）** 部署：一个镜像内同时包含 Nginx（托管前端静态资源 + 反向代理）与 FastAPI 后端，数据用 SQLite 持久化到 Docker 卷。
 
-### 前置要求
-- 一台云服务器（推荐 2核4G 以上，Ubuntu 20.04+）
-- 安装 Docker 和 Docker Compose
-- 开放 80 端口（或你自定义的端口）
+---
 
-### 步骤 1：安装 Docker（如果还没装）
+## 一、部署架构
 
-```bash
-# Ubuntu/Debian
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-
-# 安装 docker-compose
-sudo apt install docker-compose -y
 ```
-
-### 步骤 2：上传代码到服务器
-
-```bash
-# 方法1: 用 git
-git clone <your-repo-url> /opt/risk-control-platform
-cd /opt/risk-control-platform
-
-# 方法2: 用 scp 从本地上传
-scp -r /Users/qing/Documents/risk-control-platform user@your-server:/opt/risk-control-platform
-```
-
-### 步骤 3：配置环境变量
-
-```bash
-cd /opt/risk-control-platform
-cp backend/.env.example backend/.env
-vim backend/.env
-```
-
-编辑 `.env` 文件，填入真实的配置：
-
-```env
-# AI 配置
-AI_API_KEY=your-ai-api-key
-AI_BASE_URL=https://api.openai.com/v1
-AI_MODEL=gpt-4o
-
-# 数数科技 ThinkingData
-TA_API_URL=https://your-ta-instance.com
-TA_API_TOKEN=your-ta-token
-
-# Lark 飞书登录
-LARK_APP_ID=your-lark-app-id
-LARK_APP_SECRET=your-lark-app-secret
-
-# JWT 密钥（随机生成一个）
-JWT_SECRET=your-random-secret-key-change-this
-
-# 前端地址（改为你的服务器IP或域名）
-FRONTEND_URL=http://your-server-ip
-```
-
-### 步骤 4：修改 docker-compose.yml 中的 FRONTEND_URL
-
-```bash
-vim docker-compose.yml
-# 把 FRONTEND_URL 改为你的服务器公网IP或域名
-```
-
-### 步骤 5：构建并启动
-
-```bash
-docker-compose up -d --build
-```
-
-等待构建完成（首次约 2-3 分钟），然后访问 `http://your-server-ip` 即可使用！
-
-### 步骤 6：配置 Lark 飞书应用回调地址
-
-在飞书开放平台中，将 OAuth 回调地址设置为：
-```
-http://your-server-ip/api/auth/lark/callback
+                 ┌─────────────────────────────────────────┐
+  用户浏览器  ──▶ │  Docker 容器 (risk-control-platform)      │
+   :80           │   ├─ Nginx  →  /        前端静态资源(dist) │
+                 │   │          →  /api/*   反向代理到后端     │
+                 │   └─ Uvicorn(FastAPI) :8000               │
+                 │        └─ SQLite (挂载卷 kyc-data)          │
+                 └─────────────────────────────────────────┘
 ```
 
 ---
 
-## 常用运维命令
+## 二、准备工作
+
+### 1. 服务器要求
+- Linux（Ubuntu 20.04+ / Debian 推荐），2C4G 起步
+- 已开放 80 端口（如需 HTTPS 另开 443）
+- 已安装 git（脚本会自动装 Docker）
+
+### 2. Lark（飞书）开放平台配置
+1. 进入 [Lark 开放平台](https://open.larksuite.com/) 创建企业自建应用
+2. 记录 **App ID** 与 **App Secret**
+3. 在「安全设置 → 重定向 URL」添加：
+   ```
+   http://你的服务器地址/api/auth/lark/callback
+   ```
+4. 开通权限：获取用户基本信息（`contact:user.base:readonly` 等）
+5. 发布应用并在企业内可用
+
+---
+
+## 三、一键部署（推荐）
+
+### 首次部署
 
 ```bash
-# 查看日志
-docker-compose logs -f
+# 1. 下载部署脚本（或直接 clone 仓库）
+curl -O https://你的仓库/raw/main/deploy/server_deploy.sh
 
-# 重启服务
-docker-compose restart
+# 2. 用环境变量指定仓库、访问地址后执行
+REPO_URL=git@github.com:your-org/risk-control-platform.git \
+SERVER_URL=http://1.2.3.4 \
+bash server_deploy.sh
+```
 
-# 停止服务
-docker-compose down
+首次运行时脚本会：
+1. 自动安装 Docker / Docker Compose（如缺失）
+2. 克隆代码到 `/opt/risk-control-platform`
+3. 若无 `backend/.env`，自动从 `.env.example` 复制模板并**中止**，提示你去填写
 
-# 更新代码后重新部署
-git pull
-docker-compose up -d --build
+### 填写环境变量
 
-# 查看容器状态
-docker-compose ps
+```bash
+cd /opt/risk-control-platform
+vim backend/.env      # 填入 Lark / AI / 数数 / 风控模型 等密钥
+```
+
+关键项：
+| 变量 | 说明 |
+|------|------|
+| `LARK_APP_ID` / `LARK_APP_SECRET` | 飞书应用凭证 |
+| `LARK_REDIRECT_URI` | 必须与开放平台配置完全一致 |
+| `SECRET_KEY` | JWT 密钥，用 `openssl rand -hex 32` 生成 |
+| `AI_API_KEY` | AI 服务密钥 |
+| `TA_API_TOKEN` / `TA_APP_ID` | 数数 ThinkingData |
+| `RISK_MODEL_BASE_URL` / `RISK_MODEL_API_KEY` | 风控模型接口 |
+
+### 再次运行部署脚本完成启动
+
+```bash
+SERVER_URL=http://1.2.3.4 bash deploy/server_deploy.sh
+```
+
+看到 `✅ 部署成功！` 即可访问 `http://你的服务器地址`。
+
+---
+
+## 四、日常更新
+
+代码更新后，直接用你熟悉的三行命令即可（推荐）：
+
+```bash
+cd /opt/risk-control-platform
+git pull origin main
+docker compose up -d --build
+```
+
+说明：
+- 配置全部从 `backend/.env` 读取（含 `FRONTEND_URL`），无需再带环境变量。
+- 容器启动时 `start.sh` 会**自动执行**数据库迁移，补齐权限新字段，无需手动操作。
+- 数据库与 KYC 数据已挂载到 Docker 卷（`risk-db` / `kyc-data`），`--build` 重建容器不会丢数据。
+
+或者用一键脚本（自动拉代码 + 校验 .env + 健康检查）：
+
+```bash
+cd /opt/risk-control-platform
+bash deploy/server_deploy.sh
+```
+
+> ⚠️ 首次升级到「持久化卷」版本时的一次性数据迁移
+> 旧版本数据库文件在容器内 `/app/backend/risk_control.db`（未挂卷）。
+> 本版本已把数据库改到 `backend/db/` 目录并挂载 `risk-db` 卷。
+> 如果你之前已有重要数据（如已登录用户），在**第一次**执行新版部署前，
+> 先把旧库拷到宿主机、再放进新卷目录，避免"数据看起来丢了"：
+> ```bash
+> # 1) 从旧容器导出数据库（若容器还在运行）
+> docker cp risk-control-platform:/app/backend/risk_control.db ./risk_control.db
+> # 2) 拉新代码并首次构建（此步会创建 risk-db 卷）
+> git pull origin main && docker compose up -d --build
+> # 3) 把旧库放进新卷位置后重启
+> docker cp ./risk_control.db risk-control-platform:/app/backend/db/risk_control.db
+> docker compose restart
+> ```
+> 若数据可重置（重新登录即可），忽略以上步骤直接部署即可。
+
+
+---
+
+## 五、手动部署（不使用脚本）
+
+```bash
+git clone <repo> /opt/risk-control-platform
+cd /opt/risk-control-platform
+cp backend/.env.example backend/.env && vim backend/.env
+
+# 构建 + 启动（FRONTEND_URL 用于登录回调重定向）
+FRONTEND_URL=http://1.2.3.4 docker compose up -d --build
 ```
 
 ---
 
-## 使用域名 + HTTPS（推荐）
+## 六、权限管理说明
 
-如果你有域名，推荐配置 HTTPS：
+- **首位** 通过 Lark 登录的同事会被自动设为**管理员**，并拥有全部模块权限。
+- 管理员在左侧「权限管理」中可以：
+  - 搜索/查看所有用户
+  - 勾选授予各模块权限（AI 数据报告 / 风控查询 / KYC 报告 / 权限管理）
+  - 启用/停用账号、设置或取消管理员
+  - 预先添加尚未登录过的 Lark 同事并预配权限
+- 数据库结构变更由容器启动脚本 `start.sh` **自动执行** `migrate_add_permissions.py` 补齐（旧库升级无需手动操作，新库幂等无副作用）。
 
-### 方法1：使用 Caddy（最简单）
+---
 
-替换 docker-compose.yml：
+## 七、运维常用命令
 
-```yaml
-version: '3.8'
-
-services:
-  risk-platform:
-    build: .
-    container_name: risk-control-platform
-    ports:
-      - "8080:80"
-    env_file:
-      - backend/.env
-    restart: unless-stopped
-
-  caddy:
-    image: caddy:2
-    container_name: caddy
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-    restart: unless-stopped
-
-volumes:
-  caddy_data:
+```bash
+docker compose logs -f          # 查看实时日志
+docker compose restart          # 重启
+docker compose down             # 停止并移除容器（数据卷保留）
+docker compose ps               # 查看运行状态
+docker volume ls | grep kyc     # 查看数据卷
 ```
 
-创建 `deploy/Caddyfile`：
+### 数据备份（SQLite）
+```bash
+# 备份数据库文件
+docker cp risk-control-platform:/app/backend/data/risk_control.db ./backup-$(date +%F).db
 ```
-risk.yourdomain.com {
-    reverse_proxy risk-platform:80
+
+---
+
+## 八、配置 HTTPS（可选，推荐生产使用）
+
+建议在容器外用宿主机 Nginx 或 Caddy 做 TLS 终止，反代到容器 80 端口；
+并把 `SERVER_URL` 与 `LARK_REDIRECT_URI` 改为 `https://` 地址，同步更新 Lark 后台重定向 URL。
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name risk.yourcompany.com;
+    ssl_certificate     /etc/ssl/xxx.crt;
+    ssl_certificate_key /etc/ssl/xxx.key;
+    location / { proxy_pass http://127.0.0.1:80; proxy_set_header Host $host; }
 }
 ```
 
-### 方法2：使用 Nginx + Let's Encrypt
-
-参考 certbot 官方文档配置 SSL 证书。
-
 ---
 
-## 架构说明
+## 九、故障排查
 
+| 现象 | 排查方向 |
+|------|----------|
+| 登录跳转报错 | 检查 `LARK_REDIRECT_URI` 与 Lark 后台是否**完全一致** |
+| 登录后一直转圈 | `docker compose logs -f` 看后端是否 401/500 |
+| 健康检查失败 | `curl localhost/health`，查看容器是否起来 |
+| 权限菜单不显示 | 确认该用户在「权限管理」中已被授予对应模块 |
+| 数据丢失 | 确认 `kyc-data` 卷未被删除；用备份恢复 |
 ```
-┌─────────────────────────────────────────┐
-│              Cloud Server                │
-│                                         │
-│  ┌─────────┐     ┌──────────────────┐  │
-│  │  Nginx  │────▶│  FastAPI Backend  │  │
-│  │  :80    │     │  :8000           │  │
-│  │         │     │                  │  │
-│  │ 静态文件 │     │ - AI Report API  │  │
-│  │ (前端)   │     │ - Risk Query API │  │
-│  │         │     │ - Lark Auth API  │  │
-│  └─────────┘     └──────────────────┘  │
-│                          │              │
-│                          ▼              │
-│              ┌───────────────────┐      │
-│              │  External APIs    │      │
-│              │  - OpenAI/AI      │      │
-│              │  - ThinkingData   │      │
-│              │  - Lark OAuth     │      │
-│              └───────────────────┘      │
-└─────────────────────────────────────────┘
-```
-
----
-
-## 故障排查
-
-| 问题 | 解决方案 |
-|------|---------|
-| 页面打不开 | 检查 80 端口是否开放，`docker-compose ps` 看容器状态 |
-| API 报 502 | `docker-compose logs` 查看后端是否启动成功 |
-| Lark 登录失败 | 检查 LARK_APP_ID/SECRET 和回调地址配置 |
-| AI 查询超时 | 检查 AI_API_KEY 和网络连通性 |
-| 数数查询失败 | 检查 TA_API_URL 和 TA_API_TOKEN |

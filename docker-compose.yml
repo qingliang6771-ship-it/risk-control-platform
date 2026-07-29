@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   risk-platform:
     build: .
@@ -7,12 +5,13 @@ services:
     ports:
       - "80:80"
     env_file:
+      # 所有配置（含 FRONTEND_URL / LARK / AI / 数数 等）从这里读取
       - backend/.env
-    environment:
-      - FRONTEND_URL=http://your-server-ip
     volumes:
-      # 持久化上传解析后的 KYC 月度数据，避免容器重建后丢失
+      # 持久化 KYC 解析数据
       - kyc-data:/app/backend/data
+      # 持久化 SQLite 数据库文件，避免 --build 重建容器后丢失数据
+      - risk-db:/app/backend/db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
@@ -22,3 +21,5 @@ services:
 
 volumes:
   kyc-data:
+  risk-db:
+

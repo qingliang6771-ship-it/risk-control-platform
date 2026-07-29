@@ -73,4 +73,14 @@ export const riskAPI = {
   getAllModels: (userId) => api.post('/risk/all', { user_id: userId }),
 };
 
+// Admin (权限管理) APIs
+export const adminAPI = {
+  listModules: () => api.get('/admin/modules'),
+  listUsers: (q = '') => api.get('/admin/users', { params: { q } }),
+  addUser: (data) => api.post('/admin/users', data),
+  updatePermissions: (userId, data) =>
+    api.put(`/admin/users/${userId}/permissions`, data),
+};
+
 export default api;
+

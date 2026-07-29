@@ -1,7 +1,12 @@
 """User model."""
-from sqlalchemy import Column, String, DateTime, Boolean
+from sqlalchemy import Column, String, DateTime, Boolean, JSON
 from sqlalchemy.sql import func
 from ..database import Base
+
+# 所有可分配的模块 key（与前端菜单 key 对应）
+ALL_MODULES = ["dashboard", "ai-report", "risk-query", "kyc-report", "permissions"]
+# 新用户默认拥有的模块权限
+DEFAULT_MODULES = ["dashboard", "ai-report", "risk-query", "kyc-report"]
 
 
 class User(Base):
@@ -15,5 +20,8 @@ class User(Base):
     lark_union_id = Column(String, nullable=True)
     department = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
+    # 用户可访问的模块列表（JSON 数组），如 ["dashboard","ai-report"]
+    permitted_modules = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_login = Column(DateTime(timezone=True), onupdate=func.now())

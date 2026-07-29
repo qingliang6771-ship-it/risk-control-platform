@@ -9,8 +9,10 @@ from sqlalchemy import select
 
 from ..config import settings
 from ..database import get_db
-from ..models.user import User
+from ..models.user import User, DEFAULT_MODULES, ALL_MODULES
 from ..services.lark_auth import lark_auth_service
+from sqlalchemy import func as sqlfunc
+
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 security = HTTPBearer()
@@ -53,6 +55,14 @@ async def get_current_user_dep(
     return user
 
 
+async def require_admin(current_user: User = Depends(get_current_user_dep)) -> User:
+    """Dependency: 要求当前用户为管理员。"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return current_user
+
+
+
 @router.get("/lark/login")
 async def lark_login():
     """Get Lark OAuth login URL."""
@@ -87,6 +97,9 @@ async def lark_callback(code: str, state: str = "", db: AsyncSession = Depends(g
             user.avatar_url = avatar_url
             user.last_login = datetime.utcnow()
         else:
+            # 第一个登录的用户自动成为管理员，并拥有全部模块权限
+            count_result = await db.execute(select(sqlfunc.count(User.id)))
+            is_first_user = (count_result.scalar() or 0) == 0
             user = User(
                 id=open_id,
                 name=name,
@@ -94,8 +107,11 @@ async def lark_callback(code: str, state: str = "", db: AsyncSession = Depends(g
                 avatar_url=avatar_url,
                 lark_open_id=open_id,
                 lark_union_id=union_id,
+                is_admin=is_first_user,
+                permitted_modules=list(ALL_MODULES) if is_first_user else list(DEFAULT_MODULES),
             )
             db.add(user)
+
 
         await db.commit()
 
@@ -119,4 +135,7 @@ async def get_me(current_user: User = Depends(get_current_user_dep)):
         "email": current_user.email,
         "avatar_url": current_user.avatar_url,
         "department": current_user.department,
+        "is_admin": current_user.is_admin,
+        "permitted_modules": current_user.permitted_modules or [],
     }
+
