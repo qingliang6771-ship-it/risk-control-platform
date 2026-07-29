@@ -2,19 +2,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Select, Input, Drawer, Form, InputNumber, Switch,
   Tag, message, Modal, Upload, Typography, Row, Col, Divider, Alert, List,
-  Card, Statistic, Popconfirm,
+  Card, Statistic, Popconfirm, DatePicker,
 } from 'antd';
 import {
   PlusOutlined, UploadOutlined, InboxOutlined, ReloadOutlined,
-  DollarOutlined, DownloadOutlined, DeleteOutlined,
+  DollarOutlined, DownloadOutlined, DeleteOutlined, ExportOutlined,
   CheckCircleTwoTone, CloseCircleTwoTone, TeamOutlined,
   CalendarOutlined, ScheduleOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { banAPI } from '../services/api';
 
 const { TextArea } = Input;
 const { Text, Link } = Typography;
 const { Dragger } = Upload;
+const { RangePicker } = DatePicker;
+
 
 // 封禁类型 -> 展示颜色
 const LEVEL_COLOR = {
@@ -43,7 +46,12 @@ export default function BanManagement() {
   // 筛选
   const [filters, setFilters] = useState({
     bundle_id: '', app_user_id: '', ban_level: undefined, cleared: undefined,
+    start_date: undefined, end_date: undefined,
   });
+  // 时间范围（dayjs 对象数组，用于 RangePicker 受控）
+  const [dateRange, setDateRange] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
 
   // 手动录入抽屉
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -63,23 +71,31 @@ export default function BanManagement() {
       .catch(() => message.error('加载选项失败'));
   }, []);
 
-  const fetchStats = useCallback(async () => {
+  // 把筛选条件转为查询参数（列表/统计/导出共用）
+  const buildParams = (curFilters) => {
+    const params = {};
+    if (curFilters.bundle_id) params.bundle_id = curFilters.bundle_id;
+    if (curFilters.app_user_id) params.app_user_id = curFilters.app_user_id;
+    if (curFilters.ban_level) params.ban_level = curFilters.ban_level;
+    if (curFilters.cleared !== undefined) params.cleared = curFilters.cleared;
+    if (curFilters.start_date) params.start_date = curFilters.start_date;
+    if (curFilters.end_date) params.end_date = curFilters.end_date;
+    return params;
+  };
+
+  const fetchStats = useCallback(async (curFilters = filters) => {
     try {
-      const res = await banAPI.getStats();
+      const res = await banAPI.getStats(buildParams(curFilters));
       setStats(res.data);
     } catch {
       // 看板加载失败不阻塞主流程
     }
-  }, []);
+  }, [filters]);
 
   const fetchData = useCallback(async (page = 1, pageSize = 20, curFilters = filters) => {
     setLoading(true);
     try {
-      const params = { page, page_size: pageSize };
-      if (curFilters.bundle_id) params.bundle_id = curFilters.bundle_id;
-      if (curFilters.app_user_id) params.app_user_id = curFilters.app_user_id;
-      if (curFilters.ban_level) params.ban_level = curFilters.ban_level;
-      if (curFilters.cleared !== undefined) params.cleared = curFilters.cleared;
+      const params = { page, page_size: pageSize, ...buildParams(curFilters) };
       const res = await banAPI.list(params);
       setData(res.data.items || []);
       setPagination({ current: res.data.page, pageSize: res.data.page_size, total: res.data.total });
@@ -90,16 +106,54 @@ export default function BanManagement() {
     }
   }, [filters]);
 
+
   useEffect(() => { fetchData(1, 20); fetchStats(); }, []); // eslint-disable-line
 
   const refreshAll = () => { fetchData(pagination.current, pagination.pageSize, filters); fetchStats(); };
 
-  const handleSearch = () => fetchData(1, pagination.pageSize, filters);
+  const handleSearch = () => { fetchData(1, pagination.pageSize, filters); fetchStats(filters); };
   const handleReset = () => {
-    const empty = { bundle_id: '', app_user_id: '', ban_level: undefined, cleared: undefined };
+    const empty = {
+      bundle_id: '', app_user_id: '', ban_level: undefined, cleared: undefined,
+      start_date: undefined, end_date: undefined,
+    };
     setFilters(empty);
+    setDateRange(null);
     fetchData(1, pagination.pageSize, empty);
+    fetchStats(empty);
   };
+
+  // 时间范围变化
+  const handleRangeChange = (range) => {
+    setDateRange(range);
+    setFilters((f) => ({
+      ...f,
+      start_date: range?.[0] ? range[0].format('YYYY-MM-DD') : undefined,
+      end_date: range?.[1] ? range[1].format('YYYY-MM-DD') : undefined,
+    }));
+  };
+
+  // ---- 导出 CSV（按当前筛选）----
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await banAPI.exportCsv(buildParams(filters));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ban_records_${dayjs().format('YYYYMMDD_HHmmss')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      message.success('已开始下载导出文件');
+    } catch (err) {
+      message.error(err.response?.data?.detail || '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
+
 
   // ---- 手动录入 ----
   const openDrawer = () => {
@@ -320,16 +374,27 @@ export default function BanManagement() {
                 { value: false, label: '未清退' },
               ]}
             />
+            <RangePicker
+              value={dateRange}
+              onChange={handleRangeChange}
+              allowClear
+              placeholder={['封禁起始日', '封禁结束日']}
+              style={{ width: 260 }}
+            />
             <Button type="primary" onClick={handleSearch}>查询</Button>
             <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
           </Space>
         </Col>
         <Col>
           <Space>
+            <Button icon={<ExportOutlined />} loading={exporting} onClick={handleExport}>
+              导出数据
+            </Button>
             <Button icon={<PlusOutlined />} type="primary" onClick={openDrawer}>手动录入</Button>
             <Button icon={<UploadOutlined />} onClick={openUpload}>批量上传</Button>
           </Space>
         </Col>
+
       </Row>
 
       {/* 数据表格 */}

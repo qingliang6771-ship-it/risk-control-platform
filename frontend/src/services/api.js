@@ -80,6 +80,8 @@ export const banAPI = {
   list: (params = {}) => api.get('/bans', { params }),
   create: (data) => api.post('/bans', data),
   remove: (id) => api.delete(`/bans/${id}`),
+  exportCsv: (params = {}) => api.get('/bans/export', { params, responseType: 'blob' }),
+
 
   batchUpload: (file) => {
     const fd = new FormData();

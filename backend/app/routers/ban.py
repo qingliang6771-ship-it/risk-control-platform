@@ -92,6 +92,38 @@ def _to_bool(v):
     return s in ("1", "true", "yes", "y", "是", "已退", "已退余额", "已清退", "完成")
 
 
+def _parse_date(s: Optional[str], end: bool = False) -> Optional[datetime]:
+    """解析 YYYY-MM-DD 字符串为 datetime。end=True 时取当天 23:59:59。"""
+    if not s:
+        return None
+    try:
+        d = datetime.strptime(s.strip()[:10], "%Y-%m-%d")
+        if end:
+            d = d.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return d
+    except (ValueError, TypeError):
+        return None
+
+
+def _apply_common_filters(stmt, *, bundle_id=None, app_user_id=None, ban_level=None,
+                          cleared=None, start_dt=None, end_dt=None):
+    """把通用筛选条件应用到查询语句（列表 / 统计 / 导出共用）。"""
+    if bundle_id:
+        stmt = stmt.where(BanRecord.bundle_id.ilike(f"%{bundle_id}%"))
+    if app_user_id:
+        stmt = stmt.where(BanRecord.app_user_id.ilike(f"%{app_user_id}%"))
+    if ban_level:
+        stmt = stmt.where(BanRecord.ban_level == ban_level)
+    if cleared is not None:
+        stmt = stmt.where(BanRecord.cleared.is_(cleared))
+    if start_dt is not None:
+        stmt = stmt.where(BanRecord.created_at >= start_dt)
+    if end_dt is not None:
+        stmt = stmt.where(BanRecord.created_at <= end_dt)
+    return stmt
+
+
+
 # ---------- 选项 ----------
 @router.get("/options")
 async def get_options(_: User = Depends(require_ban_module)):
@@ -104,29 +136,40 @@ async def get_options(_: User = Depends(require_ban_module)):
 # ---------- 统计看板 ----------
 @router.get("/stats")
 async def get_stats(
+    bundle_id: Optional[str] = None,
+    app_user_id: Optional[str] = None,
+    ban_level: Optional[str] = None,
+    cleared: Optional[bool] = None,
+    start_date: Optional[str] = None,  # YYYY-MM-DD
+    end_date: Optional[str] = None,    # YYYY-MM-DD
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_ban_module),
 ):
-    """统计看板数据：
-    - total: 当前封禁总人数（记录数）
+    """统计看板数据（支持与列表一致的筛选条件，含时间范围）：
+    - total: 符合条件的封禁总人数
     - cleared / not_cleared: 已清退 / 未清退人数
     - by_level: 各封禁类型人数分布
-    - this_week / this_month: 本周 / 本月新增封禁人数
+    - this_week / this_month: 本周 / 本月新增封禁人数（不受筛选影响，反映全局趋势）
     """
-    now = datetime.utcnow()
-    # 本周（周一 00:00 起）
-    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-    # 本月 1 号 00:00 起
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    start_dt = _parse_date(start_date)
+    end_dt = _parse_date(end_date, end=True)
+    fkw = dict(bundle_id=bundle_id, app_user_id=app_user_id, ban_level=ban_level,
+               cleared=cleared, start_dt=start_dt, end_dt=end_dt)
 
-    total = (await db.execute(select(func.count(BanRecord.id)))).scalar() or 0
+    total = (await db.execute(
+        _apply_common_filters(select(func.count(BanRecord.id)), **fkw)
+    )).scalar() or 0
     cleared_cnt = (await db.execute(
-        select(func.count(BanRecord.id)).where(BanRecord.cleared.is_(True))
+        _apply_common_filters(
+            select(func.count(BanRecord.id)).where(BanRecord.cleared.is_(True)),
+            **{**fkw, "cleared": None})
     )).scalar() or 0
 
-    # 各类型分布
+    # 各类型分布（同样受筛选影响）
     level_rows = (await db.execute(
-        select(BanRecord.ban_level, func.count(BanRecord.id)).group_by(BanRecord.ban_level)
+        _apply_common_filters(
+            select(BanRecord.ban_level, func.count(BanRecord.id)), **fkw
+        ).group_by(BanRecord.ban_level)
     )).all()
     level_counts = {lvl: cnt for lvl, cnt in level_rows}
     by_level = [
@@ -134,6 +177,10 @@ async def get_stats(
         for k in BAN_LEVELS
     ]
 
+    # 本周 / 本月新增（全局趋势指标，不叠加筛选）
+    now = datetime.utcnow()
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     this_week = (await db.execute(
         select(func.count(BanRecord.id)).where(BanRecord.created_at >= week_start)
     )).scalar() or 0
@@ -149,6 +196,7 @@ async def get_stats(
         "this_week": int(this_week),
         "this_month": int(this_month),
     }
+
 
 
 # ---------- 资金信息占位 ----------
@@ -182,29 +230,20 @@ async def list_bans(
     app_user_id: Optional[str] = None,
     ban_level: Optional[str] = None,
     cleared: Optional[bool] = None,
+    start_date: Optional[str] = None,  # YYYY-MM-DD 按封禁时间起
+    end_date: Optional[str] = None,    # YYYY-MM-DD 按封禁时间止
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_ban_module),
 ):
-    """分页列表查询，支持按 BundleID / 业务用户ID / 封禁类型 / 是否清退 筛选。"""
-    stmt = select(BanRecord)
-    count_stmt = select(func.count(BanRecord.id))
-
-    if bundle_id:
-        like = f"%{bundle_id}%"
-        stmt = stmt.where(BanRecord.bundle_id.ilike(like))
-        count_stmt = count_stmt.where(BanRecord.bundle_id.ilike(like))
-    if app_user_id:
-        like = f"%{app_user_id}%"
-        stmt = stmt.where(BanRecord.app_user_id.ilike(like))
-        count_stmt = count_stmt.where(BanRecord.app_user_id.ilike(like))
-    if ban_level:
-        stmt = stmt.where(BanRecord.ban_level == ban_level)
-        count_stmt = count_stmt.where(BanRecord.ban_level == ban_level)
-    if cleared is not None:
-        stmt = stmt.where(BanRecord.cleared.is_(cleared))
-        count_stmt = count_stmt.where(BanRecord.cleared.is_(cleared))
+    """分页列表查询，支持按 BundleID / 业务用户ID / 封禁类型 / 是否清退 / 时间范围 筛选。"""
+    fkw = dict(
+        bundle_id=bundle_id, app_user_id=app_user_id, ban_level=ban_level,
+        cleared=cleared, start_dt=_parse_date(start_date), end_dt=_parse_date(end_date, end=True),
+    )
+    stmt = _apply_common_filters(select(BanRecord), **fkw)
+    count_stmt = _apply_common_filters(select(func.count(BanRecord.id)), **fkw)
 
     total = (await db.execute(count_stmt)).scalar() or 0
     stmt = stmt.order_by(BanRecord.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
@@ -216,6 +255,72 @@ async def list_bans(
         "page_size": page_size,
         "items": [r.to_dict() for r in rows],
     }
+
+
+# ---------- 导出（按当前筛选导出全部为 CSV）----------
+# 导出列（表头 -> to_dict 字段），含所有字段
+EXPORT_COLUMNS = [
+    ("ID", "id"),
+    ("是否已清退完成", "cleared"),
+    ("BundleID", "bundle_id"),
+    ("业务用户ID", "app_user_id"),
+    ("支付中心用户ID", "payment_center_user_id"),
+    ("封禁类型", "ban_level_label"),
+    ("封禁原因", "ban_reason"),
+    ("累计充值", "total_recharge"),
+    ("累计提现", "total_withdraw"),
+    ("累计风险金额", "total_risk_amount"),
+    ("当前余额", "current_balance"),
+    ("是否已退余额", "balance_refunded"),
+    ("操作人", "operator_name"),
+    ("封禁时间", "created_at"),
+]
+
+
+@router.get("/export")
+async def export_bans(
+    bundle_id: Optional[str] = None,
+    app_user_id: Optional[str] = None,
+    ban_level: Optional[str] = None,
+    cleared: Optional[bool] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_ban_module),
+):
+    """按当前筛选条件导出全部封禁记录为 CSV（不分页）。"""
+    fkw = dict(
+        bundle_id=bundle_id, app_user_id=app_user_id, ban_level=ban_level,
+        cleared=cleared, start_dt=_parse_date(start_date), end_dt=_parse_date(end_date, end=True),
+    )
+    stmt = _apply_common_filters(select(BanRecord), **fkw).order_by(BanRecord.created_at.desc())
+    rows = (await db.execute(stmt)).scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([cn for cn, _ in EXPORT_COLUMNS])
+    for r in rows:
+        d = r.to_dict()
+        line = []
+        for _, field in EXPORT_COLUMNS:
+            v = d.get(field)
+            if field == "cleared":
+                v = "已清退" if v else "未清退"
+            elif field == "balance_refunded":
+                v = "是" if v else "否"
+            elif field == "created_at" and v:
+                v = str(v).replace("T", " ")[:19]
+            line.append("" if v is None else v)
+        writer.writerow(line)
+
+    filename = f"ban_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    csv_bytes = ("\ufeff" + output.getvalue()).encode("utf-8")
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
 
 
 # ---------- 单条录入 ----------
