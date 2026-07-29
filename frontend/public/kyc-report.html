@@ -255,7 +255,8 @@ $('#themeBtn').addEventListener('click',()=>{const dk=document.documentElement.g
   document.documentElement.setAttribute('data-theme',dk?'light':'dark');$('#themeBtn').textContent=dk?'切换深色':'切换浅色';if(D)renderAll();});
 window.addEventListener('resize',()=>{clearTimeout(window._rz);window._rz=setTimeout(()=>{if(D)renderAll();},150);});
 
-function fmtMonth(m){const [y,mo]=m.split('-');return y+'年'+parseInt(mo,10)+'月';}
+function fmtMonth(m){if(!m||m.indexOf('-')<0)return m||'';const [y,mo]=m.split('-');return y+'年'+parseInt(mo,10)+'月';}
+
 function showError(msg){$('#loading').classList.add('hidden');$('#content').classList.add('hidden');const e=$('#errbox');e.classList.remove('hidden');e.textContent=msg;}
 function setUploadMsg(msg,color){const m=$('#uploadMsg');if(!msg){m.classList.add('hidden');return;}m.classList.remove('hidden');m.textContent=msg;m.style.color=color||'var(--muted)';}
 
@@ -302,8 +303,15 @@ async function loadReport(month){
   const url=apiBase()+'/api/kyc-report'+(month?('?month='+encodeURIComponent(month)):'');
   const r=await fetch(url,{credentials:'include'});
   if(!r.ok)throw new Error('加载报告失败（HTTP '+r.status+'）');
-  D=await r.json();
-  MONTH=D.meta.month||month||'';
+  const payload=await r.json();
+  // 后端返回 { month, uploaded_at, data:{ meta, summary, daily_vol, ... } }
+  D = payload && payload.data ? payload.data : payload;
+  if(!D||!D.meta||!D.summary||!Array.isArray(D.daily_vol)){
+    throw new Error('数据格式不兼容，可能是旧版本残留数据。请点击右上角「上传统计表」重新上传当月 Excel 覆盖。');
+  }
+  MONTH=D.meta.month||(payload&&payload.month)||month||'';
+
+
   $('#subline').textContent='KYC 处理统计 · 统计周期 '+fmtMonth(MONTH)+'（共 '+D.meta.n_days+' 天）· 数据来源：KYC处理统计表';
   document.querySelector('h1').textContent='KYC统计报告（'+fmtMonth(MONTH)+'）';
   $('#loading').classList.add('hidden');$('#content').classList.remove('hidden');
