@@ -9,7 +9,9 @@ import {
   UserOutlined,
   FileTextOutlined,
   TeamOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
+
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import AIReport from './pages/AIReport';
@@ -17,8 +19,10 @@ import RiskQuery from './pages/RiskQuery';
 import Dashboard from './pages/Dashboard';
 import KYCReport from './pages/KYCReport';
 import ChargebackReport from './pages/ChargebackReport';
+import BanManagement from './pages/BanManagement';
 
 import Permissions from './pages/Permissions';
+
 
 import { authAPI } from './services/api';
 
@@ -31,7 +35,9 @@ const MODULES = [
   { key: 'risk-query', path: '/risk-query', icon: <SafetyOutlined />, label: '风控查询', element: <RiskQuery />, adminOnly: false },
   { key: 'kyc-report', path: '/kyc-report', icon: <FileTextOutlined />, label: 'KYC 报告', element: <KYCReport />, adminOnly: false },
   { key: 'chargeback-report', path: '/chargeback-report', icon: <FileTextOutlined />, label: 'Chargeback 抗辩', element: <ChargebackReport />, adminOnly: false },
+  { key: 'ban-management', path: '/ban-management', icon: <StopOutlined />, label: '封禁管理', element: <BanManagement />, adminOnly: false },
   { key: 'permissions', path: '/permissions', icon: <TeamOutlined />, label: '权限管理', element: <Permissions />, adminOnly: true },
+
 
 ];
 

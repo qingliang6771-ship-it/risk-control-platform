@@ -73,8 +73,25 @@ export const riskAPI = {
   getAllModels: (userId) => api.post('/risk/all', { user_id: userId }),
 };
 
+// Ban (封禁管理) APIs
+export const banAPI = {
+  getOptions: () => api.get('/bans/options'),
+  list: (params = {}) => api.get('/bans', { params }),
+  create: (data) => api.post('/bans', data),
+  batchUpload: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/bans/batch', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  fetchFundInfo: (data) => api.post('/bans/fund-info', data),
+  downloadTemplate: () => api.get('/bans/template', { responseType: 'blob' }),
+};
+
 // Admin (权限管理) APIs
 export const adminAPI = {
+
   listModules: () => api.get('/admin/modules'),
   listUsers: (q = '') => api.get('/admin/users', { params: { q } }),
   addUser: (data) => api.post('/admin/users', data),

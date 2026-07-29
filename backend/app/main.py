@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import init_db, close_db
-from .routers import auth, report, risk, kyc, chargeback, admin
+from .routers import auth, report, risk, kyc, chargeback, ban, admin
+
 
 
 
@@ -42,7 +43,9 @@ app.include_router(report.router)
 app.include_router(risk.router)
 app.include_router(kyc.router)
 app.include_router(chargeback.router)
+app.include_router(ban.router)
 app.include_router(admin.router)
+
 
 
 

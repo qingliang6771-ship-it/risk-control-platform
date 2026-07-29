@@ -4,9 +4,10 @@ from sqlalchemy.sql import func
 from ..database import Base
 
 # 所有可分配的模块 key（与前端菜单 key 对应）
-ALL_MODULES = ["dashboard", "ai-report", "risk-query", "kyc-report", "chargeback-report", "permissions"]
+ALL_MODULES = ["dashboard", "ai-report", "risk-query", "kyc-report", "chargeback-report", "ban-management", "permissions"]
 # 新用户默认拥有的模块权限
 DEFAULT_MODULES = ["dashboard", "ai-report", "risk-query", "kyc-report", "chargeback-report"]
+
 
 
 

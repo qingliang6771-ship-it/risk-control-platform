@@ -59,7 +59,9 @@ async def list_modules(_: User = Depends(require_admin)):
         "risk-query": "风控查询",
         "kyc-report": "KYC 报告",
         "chargeback-report": "Chargeback 抗辩",
+        "ban-management": "封禁管理",
         "permissions": "权限管理",
+
 
     }
     return {"modules": [{"key": k, "label": labels.get(k, k)} for k in ALL_MODULES]}
