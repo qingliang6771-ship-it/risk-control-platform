@@ -75,8 +75,10 @@
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
       <select id="monthSel" class="toggle" style="padding:7px 10px;"></select>
+      <input type="month" id="uploadMonth" class="toggle" style="padding:6px 10px;" title="选择要上传/覆盖的年月">
       <button class="toggle" id="uploadBtn">上传统计表</button>
       <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
+
       <button class="toggle" id="themeBtn">切换浅色</button>
     </div>
   </header>
@@ -279,16 +281,27 @@ function showError(msg){$('#loading').classList.add('hidden');$('#content').clas
 function setUploadMsg(msg,color){const m=$('#uploadMsg');if(!msg){m.classList.add('hidden');return;}m.classList.remove('hidden');m.textContent=msg;m.style.color=color||'var(--muted)';}
 
 /* ===== 上传统计表 ===== */
-$('#uploadBtn').addEventListener('click',()=>$('#fileInput').click());
+$('#uploadBtn').addEventListener('click',()=>{
+  const um=$('#uploadMonth').value;
+  if(!um){
+    setUploadMsg('请先在左侧选择要上传/覆盖的年月，再选择文件。','var(--s2)');
+    $('#uploadMonth').focus();
+    return;
+  }
+  $('#fileInput').click();
+});
 $('#fileInput').addEventListener('change',async e=>{
   const file=e.target.files[0];
   if(!file)return;
+  const um=$('#uploadMonth').value; // YYYY-MM
+  if(!um){setUploadMsg('请先选择要上传/覆盖的年月。','var(--s2)');e.target.value='';return;}
   const btn=$('#uploadBtn');
   btn.disabled=true;const oldTxt=btn.textContent;btn.textContent='上传中…';
-  setUploadMsg('正在上传并解析「'+file.name+'」…','var(--text-secondary)');
+  setUploadMsg('正在上传并解析「'+file.name+'」到 '+fmtMonth(um)+'（将覆盖该月历史数据）…','var(--text-secondary)');
   try{
     const fd=new FormData();fd.append('file',file);
-    const r=await fetch(apiBase()+'/api/chargeback-report/upload',{method:'POST',body:fd,credentials:'include'});
+    const r=await fetch(apiBase()+'/api/chargeback-report/upload?month='+encodeURIComponent(um),{method:'POST',body:fd,credentials:'include'});
+
     const data=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(data.detail||('上传失败（HTTP '+r.status+'）'));
     const m=data.month||'';
