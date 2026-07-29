@@ -10,9 +10,15 @@ services:
       - backend/.env
     environment:
       - FRONTEND_URL=http://your-server-ip
+    volumes:
+      # 持久化上传解析后的 KYC 月度数据，避免容器重建后丢失
+      - kyc-data:/app/backend/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+volumes:
+  kyc-data:
