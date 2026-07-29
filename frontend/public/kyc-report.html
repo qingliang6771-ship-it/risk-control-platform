@@ -171,7 +171,11 @@ function lineChart(sel,rows,acc,opt){
   const mn=opt.min!==undefined?opt.min:0;
   const mx=opt.max!==undefined?opt.max:Math.ceil(Math.max(...vals)/opt.step)*opt.step;
   const n=rows.length;
-  const X=i=>m.l+(n===1?iw/2:i/(n-1)*iw),Y=v=>m.t+ih-((v-mn)/(mx-mn))*ih;
+  const X=i=>m.l+(n===1?iw/2:i/(n-1)*iw);
+  // 将数值裁剪到 [mn,mx]，避免超出上下限的点把折线画到图表框之外（如正确率<98.5% 时冲入下方卡片）
+  const clamp=v=>v<mn?mn:(v>mx?mx:v);
+  const Y=v=>m.t+ih-((clamp(v)-mn)/(mx-mn))*ih;
+
   const svg=el('svg',{class:'chart',viewBox:`0 0 ${W} ${H}`});box.appendChild(svg);
   const ticks=opt.ticks||[];
   ticks.forEach(t=>{svg.appendChild(el('line',{x1:m.l,x2:W-m.r,y1:Y(t),y2:Y(t),stroke:'var(--grid)','stroke-width':1}));
