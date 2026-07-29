@@ -75,9 +75,13 @@
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
       <select id="monthSel" class="toggle" style="padding:7px 10px;"></select>
+      <button class="toggle" id="uploadBtn">上传统计表</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
       <button class="toggle" id="themeBtn">切换浅色</button>
     </div>
   </header>
+  <div id="uploadMsg" class="hidden" style="margin:4px 0 0;font-size:13px;"></div>
+
   <div id="loading" style="padding:40px 0;color:var(--muted);font-size:14px;">正在加载数据…</div>
   <div id="errbox" class="hidden" style="padding:40px 0;color:var(--s2);font-size:14px;"></div>
   <div id="content" class="hidden">
@@ -253,6 +257,40 @@ window.addEventListener('resize',()=>{clearTimeout(window._rz);window._rz=setTim
 
 function fmtMonth(m){const [y,mo]=m.split('-');return y+'年'+parseInt(mo,10)+'月';}
 function showError(msg){$('#loading').classList.add('hidden');$('#content').classList.add('hidden');const e=$('#errbox');e.classList.remove('hidden');e.textContent=msg;}
+function setUploadMsg(msg,color){const m=$('#uploadMsg');if(!msg){m.classList.add('hidden');return;}m.classList.remove('hidden');m.textContent=msg;m.style.color=color||'var(--muted)';}
+
+/* ===== 上传统计表 ===== */
+$('#uploadBtn').addEventListener('click',()=>$('#fileInput').click());
+$('#fileInput').addEventListener('change',async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  const btn=$('#uploadBtn');
+  btn.disabled=true;const oldTxt=btn.textContent;btn.textContent='上传中…';
+  setUploadMsg('正在上传并解析「'+file.name+'」…','var(--text-secondary)');
+  try{
+    const fd=new FormData();fd.append('file',file);
+    const r=await fetch(apiBase()+'/api/kyc-report/upload',{method:'POST',body:fd,credentials:'include'});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(data.detail||('上传失败（HTTP '+r.status+'）'));
+    const m=data.month||'';
+    setUploadMsg('✓ 上传成功'+(m?('，已解析 '+fmtMonth(m)+' 数据'):'')+'，正在刷新…','var(--good)');
+    // 刷新月份列表并跳转到刚上传的月份
+    const months=await loadMonths();
+    const sel=$('#monthSel');
+    if(months.length){
+      sel.style.display='';
+      sel.innerHTML=months.map(x=>`<option value="${x}">${fmtMonth(x)}</option>`).join('');
+      sel.value=months.includes(m)?m:months[0];
+    }
+    await loadReport(sel.value||m||'');
+    setTimeout(()=>setUploadMsg(''),4000);
+  }catch(err){
+    setUploadMsg('✗ '+err.message,'var(--s2)');
+  }finally{
+    btn.disabled=false;btn.textContent=oldTxt;e.target.value='';
+  }
+});
+
 
 async function loadMonths(){
   const r=await fetch(apiBase()+'/api/kyc-report/months',{credentials:'include'});
@@ -272,25 +310,35 @@ async function loadReport(month){
   renderAll();
 }
 
+function showEmpty(){
+  $('#loading').classList.add('hidden');
+  $('#content').classList.add('hidden');
+  $('#monthSel').style.display='none';
+  const e=$('#errbox');e.classList.remove('hidden');e.style.color='var(--text-secondary)';
+  e.innerHTML='还没有任何 KYC 统计数据。请点击右上角「上传统计表」，选择当月的 KYC 处理统计 Excel（.xlsx）即可自动生成报告。';
+}
+
 async function init(){
+  let months=[];
   try{
-    let months=[];
-    try{months=await loadMonths();}catch(e){months=[];}
-    const sel=$('#monthSel');
-    if(months.length){
-      sel.innerHTML=months.map(m=>`<option value="${m}">${fmtMonth(m)}</option>`).join('');
-      sel.value=months[0];
-      sel.addEventListener('change',()=>loadReport(sel.value).catch(err=>showError(err.message)));
-      await loadReport(months[0]);
-    }else{
-      sel.style.display='none';
-      await loadReport('');
-    }
+    months=await loadMonths();
   }catch(err){
-    showError(err.message+'。请确认已上传 KYC 统计表，且已通过 Lark 登录。');
+    showError('无法连接后台（'+err.message+'）。请确认已通过 Lark 登录。');
+    return;
+  }
+  const sel=$('#monthSel');
+  if(months.length){
+    sel.style.display='';
+    sel.innerHTML=months.map(m=>`<option value="${m}">${fmtMonth(m)}</option>`).join('');
+    sel.value=months[0];
+    sel.addEventListener('change',()=>loadReport(sel.value).catch(err=>showError(err.message)));
+    try{ await loadReport(months[0]); }catch(err){ showError(err.message); }
+  }else{
+    showEmpty();
   }
 }
 init();
+
 </script>
 </body>
 </html>
