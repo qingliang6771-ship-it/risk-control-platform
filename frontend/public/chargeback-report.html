@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KYC统计报告</title>
+<title>Chargeback抗辩复核报告</title>
 <style>
   :root{
     --plane:#f9f9f7;--surface-1:#fcfcfb;--text-primary:#0b0b0b;--text-secondary:#52514e;--muted:#898781;
@@ -70,7 +70,7 @@
 <div class="wrap">
   <header class="page">
     <div>
-      <h1>KYC统计报告</h1>
+      <h1>Chargeback抗辩复核报告</h1>
       <p class="sub" id="subline">加载中…</p>
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
@@ -91,21 +91,21 @@
 
   <section class="card" style="margin-top:16px;">
     <div class="card-head">
-      <div><h2>每日处理量趋势</h2><p class="csub">虚线为日均参考线</p></div>
+      <div><h2>每日复核量趋势</h2><p class="csub">虚线为日均参考线</p></div>
       <button class="link" data-toggle="vol">表格视图</button>
     </div>
     <div id="vol"></div><div id="vol-table" class="hidden"></div>
   </section>
 
   <section class="card" style="margin-top:16px;">
-    <div class="card-head"><div><h2>每日处理正确率</h2><p class="csub" id="acc-sub">纵轴自动适配</p></div>
+    <div class="card-head"><div><h2>每日复核正确率</h2><p class="csub" id="acc-sub">纵轴自动适配</p></div>
 
       <button class="link" data-toggle="acc">表格视图</button></div>
     <div id="acc"></div><div id="acc-table" class="hidden"></div>
   </section>
 
   <section class="card" style="margin-top:16px;">
-    <div class="card-head"><div><h2>客服处理量排名</h2><p class="csub">当月总处理件数</p></div>
+    <div class="card-head"><div><h2>客服复核量排名</h2><p class="csub">当月总复核件数</p></div>
       <button class="link" data-toggle="avol">表格视图</button></div>
     <div id="avol"></div><div id="avol-table" class="hidden"></div>
   </section>
@@ -146,14 +146,15 @@ function spark(data,fmt){
 function renderKpi(){
   const s=D.summary;
   const kpis=[
-    {label:'总处理量',value:NF(s['总处理量']),ctx:'当月共 '+D.meta.n_days+' 天',sp:D.daily_vol.map(x=>x.vol)},
-    {label:'日均处理量',value:NF(D.meta.daily_vol_avg),ctx:'件 / 天 · 全月',sp:D.daily_vol.map(x=>x.vol)},
-    {label:'处理正确率',value:s['正确率(%)']+'%',ctx:'正确 '+NF(s['正确数'])+' 件',sp:D.daily_acc.map(x=>x.acc)},
-    {label:'拒绝率',value:s['拒绝率(%)']+'%',ctx:'拒绝 '+NF(s['拒绝数'])+' 件',sp:null},
-    {label:'操作错误',value:s['操作错误数'],ctx:'占比 '+s['操作错误占比(%)']+'%',sp:null},
+    {label:'总复核量',value:NF(s['总复核量']),ctx:'当月共 '+D.meta.n_days+' 天',sp:D.daily_vol.map(x=>x.vol)},
+    {label:'日均复核量',value:NF(D.meta.daily_vol_avg),ctx:'件 / 天 · 全月',sp:D.daily_vol.map(x=>x.vol)},
+    {label:'复核正确率',value:s['正确率(%)']+'%',ctx:'正确 '+NF(s['正确数'])+' 件',sp:D.daily_acc.map(x=>x.acc)},
+    {label:'已提交抗辩',value:NF(s['已提交抗辩数']),ctx:'提交率 '+s['抗辩提交率(%)']+'%',sp:null},
     {label:'判断错误',value:s['判断错误数'],ctx:'占比 '+s['判断错误占比(%)']+'%',sp:null},
+    {label:'二次处理',value:s['二次处理数'],ctx:'件 · 全月',sp:null},
     {label:'活跃客服',value:D.meta.n_agents,ctx:'人 · 全月',sp:null},
   ];
+
   const row=$('#kpiRow');row.innerHTML='';
   kpis.forEach(k=>{
     const t=document.createElement('div');t.className='tile';
@@ -231,7 +232,7 @@ function tableHTML(cols,rows){
 function renderAll(){
   renderKpi();
   // daily volume (area)
-  const volMax=Math.max(150,Math.ceil(Math.max(...D.daily_vol.map(x=>x.vol))/150)*150);lineChart('#vol',D.daily_vol,r=>r.vol,{area:true,min:0,max:volMax,ticks:[0,Math.round(volMax/3),Math.round(volMax*2/3),volMax],tickFmt:NF,xevery:4,ref:D.meta.daily_vol_avg,name:'处理量',endFmt:NF,ttFmt:NF});
+  const volMax=Math.max(150,Math.ceil(Math.max(...D.daily_vol.map(x=>x.vol))/150)*150);lineChart('#vol',D.daily_vol,r=>r.vol,{area:true,min:0,max:volMax,ticks:[0,Math.round(volMax/3),Math.round(volMax*2/3),volMax],tickFmt:NF,xevery:4,ref:D.meta.daily_vol_avg,name:'复核量',endFmt:NF,ttFmt:NF});
   $('#vol-table').innerHTML=tableHTML(['日期','处理量'],D.daily_vol.map(r=>[r.date,NF(r.vol)]));
   // daily accuracy —— 动态纵轴：下限取当月最低正确率再向下留一点余量，避免线冲出图表
   const accVals=D.daily_acc.map(x=>x.acc);
@@ -245,20 +246,22 @@ function renderAll(){
   const accSub=document.querySelector('#acc-sub');if(accSub)accSub.textContent=`纵轴范围 ${accMin}–100%`;
   lineChart('#acc',D.daily_acc,r=>r.acc,{min:accMin,max:100,ticks:accTicks,tickFmt:t=>t+'%',xevery:5,name:'正确率',endFmt:v=>v+'%',ttFmt:v=>v+'%',l:44});
 
-  $('#acc-table').innerHTML=tableHTML(['日期','正确率','判断错误','操作错误'],D.daily_acc.map(r=>[r.date,r.acc+'%',r.judge_err,r.op_err]));
+  $('#acc-table').innerHTML=tableHTML(['日期','正确率','判断错误','已提交抗辩'],D.daily_acc.map(r=>[r.date,r.acc+'%',r.judge_err,r.submitted]));
   // agent volume
   const av=[...D.agents].sort((a,b)=>b.total-a.total);
-  hbar('#avol',av,a=>a.total,{max:2000,step:500,rowH:34,
+  const avMax=Math.max(100,Math.ceil(Math.max(...av.map(a=>a.total))/100)*100);
+  hbar('#avol',av,a=>a.total,{max:avMax,step:100,rowH:34,
     lbl:a=>NF(a.total),
-    tt:a=>`<div class="tt-title">${a.name}</div><div class="tt-row"><span>总处理量</span><b>${NF(a.total)}</b></div><div class="tt-row"><span>活跃天数</span><b>${a.days} 天</b></div><div class="tt-row"><span>日均</span><b>${a.avg}</b></div>`});
-  $('#avol-table').innerHTML=tableHTML(['客服','总处理量','活跃天数','日均'],av.map(a=>[a.name,NF(a.total),a.days,a.avg]));
+    tt:a=>`<div class="tt-title">${a.name}</div><div class="tt-row"><span>总复核量</span><b>${NF(a.total)}</b></div><div class="tt-row"><span>活跃天数</span><b>${a.days} 天</b></div><div class="tt-row"><span>日均</span><b>${a.avg}</b></div>`});
+  $('#avol-table').innerHTML=tableHTML(['客服','总复核量','活跃天数','日均'],av.map(a=>[a.name,NF(a.total),a.days,a.avg]));
   // agent detail table
   $('#agent-table').innerHTML=tableHTML(
-    ['客服','总处理量','活跃天数','日均','正确率','拒绝数','拒绝率','判断错误','操作错误'],
-    D.agents.map(a=>[a.name,NF(a.total),a.days,a.avg,a.acc+'%',a.rej,a.rej_rate+'%',a.judge_err,a.op_err])
+    ['客服','总复核量','活跃天数','日均','正确率','已提交抗辩','抗辩提交率','判断错误','二次处理'],
+    D.agents.map(a=>[a.name,NF(a.total),a.days,a.avg,a.acc+'%',a.submitted,a.sub_rate+'%',a.judge_err,a.second])
   );
-  $('#foot').innerHTML='注：处理量受客服活跃天数影响，横向比较请以日均口径为准。'+
-    ' 正确率经复核口径统计；拒绝率为处理拒绝件数占比，属业务结果而非差错。每张图提供表格视图，深色模式为独立配色。';
+  $('#foot').innerHTML='注：复核量受客服活跃天数影响，横向比较请以日均口径为准。'+
+    ' 正确率为复核结果 Correct 占比；已提交抗辩指抗辩列标记为「已提交」的件数。每张图提供表格视图，深色模式为独立配色。';
+
 }
 
 document.querySelectorAll('.link[data-toggle]').forEach(b=>{
@@ -285,7 +288,7 @@ $('#fileInput').addEventListener('change',async e=>{
   setUploadMsg('正在上传并解析「'+file.name+'」…','var(--text-secondary)');
   try{
     const fd=new FormData();fd.append('file',file);
-    const r=await fetch(apiBase()+'/api/kyc-report/upload',{method:'POST',body:fd,credentials:'include'});
+    const r=await fetch(apiBase()+'/api/chargeback-report/upload',{method:'POST',body:fd,credentials:'include'});
     const data=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(data.detail||('上传失败（HTTP '+r.status+'）'));
     const m=data.month||'';
@@ -309,13 +312,13 @@ $('#fileInput').addEventListener('change',async e=>{
 
 
 async function loadMonths(){
-  const r=await fetch(apiBase()+'/api/kyc-report/months',{credentials:'include'});
+  const r=await fetch(apiBase()+'/api/chargeback-report/months',{credentials:'include'});
   if(!r.ok)throw new Error('无法获取月份列表（HTTP '+r.status+'）');
   return (await r.json()).months||[];
 }
 async function loadReport(month){
   $('#loading').classList.remove('hidden');$('#content').classList.add('hidden');$('#errbox').classList.add('hidden');
-  const url=apiBase()+'/api/kyc-report'+(month?('?month='+encodeURIComponent(month)):'');
+  const url=apiBase()+'/api/chargeback-report'+(month?('?month='+encodeURIComponent(month)):'');
   const r=await fetch(url,{credentials:'include'});
   if(!r.ok)throw new Error('加载报告失败（HTTP '+r.status+'）');
   const payload=await r.json();
@@ -327,8 +330,8 @@ async function loadReport(month){
   MONTH=D.meta.month||(payload&&payload.month)||month||'';
 
 
-  $('#subline').textContent='KYC 处理统计 · 统计周期 '+fmtMonth(MONTH)+'（共 '+D.meta.n_days+' 天）· 数据来源：KYC处理统计表';
-  document.querySelector('h1').textContent='KYC统计报告（'+fmtMonth(MONTH)+'）';
+  $('#subline').textContent='Chargeback 抗辩复核统计 · 统计周期 '+fmtMonth(MONTH)+'（共 '+D.meta.n_days+' 天）· 数据来源：【菲律宾客服】Chargeback复核表';
+  document.querySelector('h1').textContent='Chargeback抗辩复核报告（'+fmtMonth(MONTH)+'）';
   $('#loading').classList.add('hidden');$('#content').classList.remove('hidden');
   renderAll();
 }
@@ -338,7 +341,7 @@ function showEmpty(){
   $('#content').classList.add('hidden');
   $('#monthSel').style.display='none';
   const e=$('#errbox');e.classList.remove('hidden');e.style.color='var(--text-secondary)';
-  e.innerHTML='还没有任何 KYC 统计数据。请点击右上角「上传统计表」，选择当月的 KYC 处理统计 Excel（.xlsx）即可自动生成报告。';
+  e.innerHTML='还没有任何 Chargeback 抗辩复核数据。请点击右上角「上传统计表」，选择当月的 Chargeback 抗辩复核统计 Excel（.xlsx）即可自动生成报告。';
 }
 
 async function init(){
