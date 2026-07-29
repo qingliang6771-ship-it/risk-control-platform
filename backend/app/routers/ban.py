@@ -1,20 +1,23 @@
 """封禁管理 (Ban Management) 路由。
 
 接口：
-- GET  /api/bans                 列表查询（支持 bundle_id / app_user_id / ban_level 筛选、分页）
-- POST /api/bans                 单条录入
-- POST /api/bans/batch           批量上传（Excel/CSV，返回成功/失败明细）
-- GET  /api/bans/options         下拉选项（BundleID 列表、封禁等级列表）
-- GET  /api/bans/template        下载批量导入模板（CSV）
-- POST /api/bans/fund-info       「获取资金信息」占位接口（未来对接资金/支付中心）
+- GET    /api/bans               列表查询（支持 bundle_id / app_user_id / ban_level / cleared 筛选、分页）
+- POST   /api/bans               单条录入
+- DELETE /api/bans/{ban_id}      删除记录（仅管理员）
+- POST   /api/bans/batch         批量上传（Excel/CSV，返回成功/失败明细）
+- GET    /api/bans/options       下拉选项（封禁类型列表）
+- GET    /api/bans/stats         统计看板（总人数 / 各类型分布 / 周汇总 / 月汇总 / 清退情况）
+- GET    /api/bans/template      下载批量导入模板（CSV）
+- POST   /api/bans/fund-info     「获取资金信息」占位接口（未来对接资金/支付中心）
 
 所有接口都要求登录，并需要 `ban-management` 模块权限。
+删除接口额外要求管理员。
 操作人从登录态 (token -> User) 提取，前端无需传。
 """
 import io
 import csv
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
@@ -30,14 +33,6 @@ from .auth import get_current_user_dep
 router = APIRouter(prefix="/api/bans", tags=["ban-management"])
 
 
-# BundleID 候选（可按需扩展/后续从配置或数据表读取）
-BUNDLE_IDS = [
-    "com.company.app1",
-    "com.company.app2",
-    "com.company.app3",
-]
-
-
 # ---------- 权限校验 ----------
 async def require_ban_module(current_user: User = Depends(get_current_user_dep)) -> User:
     """要求用户拥有『封禁管理』模块权限（管理员放行）。"""
@@ -47,12 +42,20 @@ async def require_ban_module(current_user: User = Depends(get_current_user_dep))
     return current_user
 
 
+async def require_admin_user(current_user: User = Depends(get_current_user_dep)) -> User:
+    """删除等敏感操作要求管理员。"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="仅管理员可执行该操作")
+    return current_user
+
+
 # ---------- Pydantic Schema ----------
 class BanCreate(BaseModel):
+    cleared: bool = False
     bundle_id: Optional[str] = None
     app_user_id: str = Field(..., min_length=1)
     payment_center_user_id: str = Field(..., min_length=1)
-    ban_level: str = "warning"
+    ban_level: str = "compliance"
     ban_reason: str = Field(..., min_length=1)
     total_recharge: float = 0
     total_withdraw: float = 0
@@ -69,7 +72,7 @@ class FundInfoQuery(BaseModel):
 # ---------- 工具 ----------
 def _validate_level(level: str) -> str:
     if level not in BAN_LEVELS:
-        raise HTTPException(status_code=400, detail=f"无效封禁等级: {level}")
+        raise HTTPException(status_code=400, detail=f"无效封禁类型: {level}")
     return level
 
 
@@ -86,16 +89,65 @@ def _to_bool(v):
     if isinstance(v, bool):
         return v
     s = str(v).strip().lower()
-    return s in ("1", "true", "yes", "y", "是", "已退", "已退余额")
+    return s in ("1", "true", "yes", "y", "是", "已退", "已退余额", "已清退", "完成")
 
 
 # ---------- 选项 ----------
 @router.get("/options")
 async def get_options(_: User = Depends(require_ban_module)):
-    """返回下拉选项：BundleID 列表 + 封禁等级列表。"""
+    """返回下拉选项：封禁类型列表（BundleID 改为手动录入，不再返回固定列表）。"""
     return {
-        "bundle_ids": BUNDLE_IDS,
         "ban_levels": [{"key": k, "label": BAN_LEVEL_LABELS[k]} for k in BAN_LEVELS],
+    }
+
+
+# ---------- 统计看板 ----------
+@router.get("/stats")
+async def get_stats(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_ban_module),
+):
+    """统计看板数据：
+    - total: 当前封禁总人数（记录数）
+    - cleared / not_cleared: 已清退 / 未清退人数
+    - by_level: 各封禁类型人数分布
+    - this_week / this_month: 本周 / 本月新增封禁人数
+    """
+    now = datetime.utcnow()
+    # 本周（周一 00:00 起）
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    # 本月 1 号 00:00 起
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    total = (await db.execute(select(func.count(BanRecord.id)))).scalar() or 0
+    cleared_cnt = (await db.execute(
+        select(func.count(BanRecord.id)).where(BanRecord.cleared.is_(True))
+    )).scalar() or 0
+
+    # 各类型分布
+    level_rows = (await db.execute(
+        select(BanRecord.ban_level, func.count(BanRecord.id)).group_by(BanRecord.ban_level)
+    )).all()
+    level_counts = {lvl: cnt for lvl, cnt in level_rows}
+    by_level = [
+        {"key": k, "label": BAN_LEVEL_LABELS[k], "count": int(level_counts.get(k, 0))}
+        for k in BAN_LEVELS
+    ]
+
+    this_week = (await db.execute(
+        select(func.count(BanRecord.id)).where(BanRecord.created_at >= week_start)
+    )).scalar() or 0
+    this_month = (await db.execute(
+        select(func.count(BanRecord.id)).where(BanRecord.created_at >= month_start)
+    )).scalar() or 0
+
+    return {
+        "total": int(total),
+        "cleared": int(cleared_cnt),
+        "not_cleared": int(total) - int(cleared_cnt),
+        "by_level": by_level,
+        "this_week": int(this_week),
+        "this_month": int(this_month),
     }
 
 
@@ -129,18 +181,20 @@ async def list_bans(
     bundle_id: Optional[str] = None,
     app_user_id: Optional[str] = None,
     ban_level: Optional[str] = None,
+    cleared: Optional[bool] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_ban_module),
 ):
-    """分页列表查询，支持按 BundleID / 业务用户ID / 封禁等级筛选。"""
+    """分页列表查询，支持按 BundleID / 业务用户ID / 封禁类型 / 是否清退 筛选。"""
     stmt = select(BanRecord)
     count_stmt = select(func.count(BanRecord.id))
 
     if bundle_id:
-        stmt = stmt.where(BanRecord.bundle_id == bundle_id)
-        count_stmt = count_stmt.where(BanRecord.bundle_id == bundle_id)
+        like = f"%{bundle_id}%"
+        stmt = stmt.where(BanRecord.bundle_id.ilike(like))
+        count_stmt = count_stmt.where(BanRecord.bundle_id.ilike(like))
     if app_user_id:
         like = f"%{app_user_id}%"
         stmt = stmt.where(BanRecord.app_user_id.ilike(like))
@@ -148,6 +202,9 @@ async def list_bans(
     if ban_level:
         stmt = stmt.where(BanRecord.ban_level == ban_level)
         count_stmt = count_stmt.where(BanRecord.ban_level == ban_level)
+    if cleared is not None:
+        stmt = stmt.where(BanRecord.cleared.is_(cleared))
+        count_stmt = count_stmt.where(BanRecord.cleared.is_(cleared))
 
     total = (await db.execute(count_stmt)).scalar() or 0
     stmt = stmt.order_by(BanRecord.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
@@ -172,7 +229,8 @@ async def create_ban(
     _validate_level(body.ban_level)
 
     record = BanRecord(
-        bundle_id=body.bundle_id or None,
+        cleared=body.cleared,
+        bundle_id=(body.bundle_id.strip() if body.bundle_id else None) or None,
         app_user_id=body.app_user_id.strip(),
         payment_center_user_id=body.payment_center_user_id.strip(),
         ban_level=body.ban_level,
@@ -191,13 +249,30 @@ async def create_ban(
     return record.to_dict()
 
 
+# ---------- 删除（仅管理员）----------
+@router.delete("/{ban_id}")
+async def delete_ban(
+    ban_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin_user),
+):
+    """删除一条封禁记录（仅管理员）。"""
+    record = (await db.execute(select(BanRecord).where(BanRecord.id == ban_id))).scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    await db.delete(record)
+    await db.commit()
+    return {"ok": True, "deleted_id": ban_id}
+
+
 # ---------- 批量上传 ----------
 # 模板列（表头 -> 字段）。表头用中文，便于风控同事填写。
 TEMPLATE_COLUMNS = [
+    ("是否已清退完成", "cleared"),
     ("BundleID", "bundle_id"),
     ("业务用户ID", "app_user_id"),
     ("支付中心用户ID", "payment_center_user_id"),
-    ("封禁等级", "ban_level"),
+    ("封禁类型", "ban_level"),
     ("封禁原因", "ban_reason"),
     ("累计充值", "total_recharge"),
     ("累计提现", "total_withdraw"),
@@ -281,9 +356,6 @@ async def batch_upload(
     if not rows:
         raise HTTPException(status_code=400, detail="文件中没有可导入的数据行")
 
-    # 中文表头 -> 字段名 映射
-    header_map = {cn: field for cn, field in TEMPLATE_COLUMNS}
-
     success = 0
     errors = []
     to_add = []
@@ -298,7 +370,7 @@ async def batch_upload(
         app_user_id = get("业务用户ID", "app_user_id")
         pc_user_id = get("支付中心用户ID", "payment_center_user_id")
         reason = get("封禁原因", "ban_reason")
-        level_raw = get("封禁等级", "ban_level")
+        level_raw = get("封禁类型", "ban_level")
 
         row_errors = []
         app_user_id = str(app_user_id).strip() if app_user_id not in (None, "") else ""
@@ -312,14 +384,19 @@ async def batch_upload(
         if not reason:
             row_errors.append("封禁原因 必填")
 
-        level = _parse_level(level_raw) or "warning"
+        level = _parse_level(level_raw)
+        if level_raw not in (None, "") and level is None:
+            row_errors.append(f"封禁类型无法识别: {level_raw}")
+        level = level or "compliance"
 
         if row_errors:
             errors.append({"row": idx, "reasons": row_errors})
             continue
 
+        bundle_raw = get("BundleID", "bundle_id")
         record = BanRecord(
-            bundle_id=(str(get("BundleID", "bundle_id")).strip() or None) if get("BundleID", "bundle_id") else None,
+            cleared=_to_bool(get("是否已清退完成", "cleared")),
+            bundle_id=(str(bundle_raw).strip() or None) if bundle_raw else None,
             app_user_id=app_user_id,
             payment_center_user_id=pc_user_id,
             ban_level=level,
@@ -357,7 +434,7 @@ async def download_template(_: User = Depends(require_ban_module)):
     writer.writerow(headers)
     # 示例行
     writer.writerow([
-        "com.company.app1", "U100001", "PC100001", "永久封禁",
+        "否", "com.company.app1", "U100001", "PC100001", "合规封禁",
         "多账号套利", "1000", "800", "500", "200", "否",
     ])
     csv_bytes = ("\ufeff" + output.getvalue()).encode("utf-8")  # BOM 保证 Excel 中文不乱码

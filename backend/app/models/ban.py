@@ -6,13 +6,14 @@ from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime
 from sqlalchemy.sql import func
 from ..database import Base
 
-# 封禁等级枚举（与前端下拉一致）
-BAN_LEVELS = ["warning", "limit_withdraw", "freeze", "permanent"]
+# 封禁等级/类型枚举（与前端下拉一致）
+BAN_LEVELS = ["compliance", "payment", "kyc", "project_freeze", "persuade_quit"]
 BAN_LEVEL_LABELS = {
-    "warning": "轻度警告",
-    "limit_withdraw": "限制提现",
-    "freeze": "冻结账户",
-    "permanent": "永久封禁",
+    "compliance": "合规封禁",
+    "payment": "支付封禁",
+    "kyc": "KYC封禁",
+    "project_freeze": "项目冻结",
+    "persuade_quit": "劝退",
 }
 
 
@@ -21,13 +22,16 @@ class BanRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
+    # 是否已清退完成（高亮字段，放最前面展示）
+    cleared = Column(Boolean, nullable=False, default=False)
+
     # 标识信息
-    bundle_id = Column(String, nullable=True, index=True)              # BundleID / 产品包
+    bundle_id = Column(String, nullable=True, index=True)              # BundleID / 产品包（手动录入）
     app_user_id = Column(String, nullable=False, index=True)          # 业务用户ID
     payment_center_user_id = Column(String, nullable=False, index=True)  # 支付中心用户ID
 
     # 封禁信息
-    ban_level = Column(String, nullable=False, default="warning")     # 封禁等级 key
+    ban_level = Column(String, nullable=False, default="compliance")  # 封禁类型 key
     ban_reason = Column(Text, nullable=False)                         # 封禁原因
 
     # 资金数据
@@ -48,6 +52,7 @@ class BanRecord(Base):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "cleared": bool(self.cleared),
             "bundle_id": self.bundle_id,
             "app_user_id": self.app_user_id,
             "payment_center_user_id": self.payment_center_user_id,

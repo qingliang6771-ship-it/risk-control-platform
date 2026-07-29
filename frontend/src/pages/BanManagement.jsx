@@ -2,10 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Select, Input, Drawer, Form, InputNumber, Switch,
   Tag, message, Modal, Upload, Typography, Row, Col, Divider, Alert, List,
+  Card, Statistic, Popconfirm,
 } from 'antd';
 import {
   PlusOutlined, UploadOutlined, InboxOutlined, ReloadOutlined,
-  DollarOutlined, DownloadOutlined,
+  DollarOutlined, DownloadOutlined, DeleteOutlined,
+  CheckCircleTwoTone, CloseCircleTwoTone, TeamOutlined,
+  CalendarOutlined, ScheduleOutlined,
 } from '@ant-design/icons';
 import { banAPI } from '../services/api';
 
@@ -13,25 +16,34 @@ const { TextArea } = Input;
 const { Text, Link } = Typography;
 const { Dragger } = Upload;
 
-// 封禁等级 -> 展示颜色
+// 封禁类型 -> 展示颜色
 const LEVEL_COLOR = {
-  warning: 'gold',
-  limit_withdraw: 'orange',
-  freeze: 'volcano',
-  permanent: 'red',
+  compliance: 'volcano',
+  payment: 'orange',
+  kyc: 'geekblue',
+  project_freeze: 'purple',
+  persuade_quit: 'gold',
 };
 
 export default function BanManagement() {
+  // 当前用户（判断是否管理员，用于删除按钮显隐）
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const isAdmin = !!user.is_admin;
+
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
 
+  // 统计看板
+  const [stats, setStats] = useState(null);
+
   // 选项
-  const [bundleIds, setBundleIds] = useState([]);
   const [banLevels, setBanLevels] = useState([]);
 
   // 筛选
-  const [filters, setFilters] = useState({ bundle_id: undefined, app_user_id: '', ban_level: undefined });
+  const [filters, setFilters] = useState({
+    bundle_id: '', app_user_id: '', ban_level: undefined, cleared: undefined,
+  });
 
   // 手动录入抽屉
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -47,11 +59,17 @@ export default function BanManagement() {
   // 加载下拉选项
   useEffect(() => {
     banAPI.getOptions()
-      .then((res) => {
-        setBundleIds(res.data.bundle_ids || []);
-        setBanLevels(res.data.ban_levels || []);
-      })
+      .then((res) => setBanLevels(res.data.ban_levels || []))
       .catch(() => message.error('加载选项失败'));
+  }, []);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await banAPI.getStats();
+      setStats(res.data);
+    } catch {
+      // 看板加载失败不阻塞主流程
+    }
   }, []);
 
   const fetchData = useCallback(async (page = 1, pageSize = 20, curFilters = filters) => {
@@ -61,6 +79,7 @@ export default function BanManagement() {
       if (curFilters.bundle_id) params.bundle_id = curFilters.bundle_id;
       if (curFilters.app_user_id) params.app_user_id = curFilters.app_user_id;
       if (curFilters.ban_level) params.ban_level = curFilters.ban_level;
+      if (curFilters.cleared !== undefined) params.cleared = curFilters.cleared;
       const res = await banAPI.list(params);
       setData(res.data.items || []);
       setPagination({ current: res.data.page, pageSize: res.data.page_size, total: res.data.total });
@@ -71,11 +90,13 @@ export default function BanManagement() {
     }
   }, [filters]);
 
-  useEffect(() => { fetchData(1, 20); }, []); // eslint-disable-line
+  useEffect(() => { fetchData(1, 20); fetchStats(); }, []); // eslint-disable-line
+
+  const refreshAll = () => { fetchData(pagination.current, pagination.pageSize, filters); fetchStats(); };
 
   const handleSearch = () => fetchData(1, pagination.pageSize, filters);
   const handleReset = () => {
-    const empty = { bundle_id: undefined, app_user_id: '', ban_level: undefined };
+    const empty = { bundle_id: '', app_user_id: '', ban_level: undefined, cleared: undefined };
     setFilters(empty);
     fetchData(1, pagination.pageSize, empty);
   };
@@ -83,8 +104,10 @@ export default function BanManagement() {
   // ---- 手动录入 ----
   const openDrawer = () => {
     form.resetFields();
-    form.setFieldsValue({ ban_level: 'warning', balance_refunded: false,
-      total_recharge: 0, total_withdraw: 0, total_risk_amount: 0, current_balance: 0 });
+    form.setFieldsValue({
+      ban_level: 'compliance', cleared: false, balance_refunded: false,
+      total_recharge: 0, total_withdraw: 0, total_risk_amount: 0, current_balance: 0,
+    });
     setDrawerOpen(true);
   };
 
@@ -121,11 +144,23 @@ export default function BanManagement() {
       message.success('封禁记录已录入');
       setDrawerOpen(false);
       fetchData(1, pagination.pageSize, filters);
+      fetchStats();
     } catch (err) {
-      if (err?.errorFields) return; // 表单校验错误
+      if (err?.errorFields) return;
       message.error(err.response?.data?.detail || '录入失败');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // ---- 删除（管理员）----
+  const handleDelete = async (id) => {
+    try {
+      await banAPI.remove(id);
+      message.success('已删除');
+      refreshAll();
+    } catch (err) {
+      message.error(err.response?.data?.detail || '删除失败');
     }
   };
 
@@ -156,7 +191,7 @@ export default function BanManagement() {
       setUploadResult(res.data);
       if (res.data.success > 0) {
         message.success(`成功导入 ${res.data.success} 条`);
-        fetchData(1, pagination.pageSize, filters);
+        refreshAll();
       }
       if (res.data.failed > 0) {
         message.warning(`有 ${res.data.failed} 条导入失败，请查看详情`);
@@ -166,15 +201,21 @@ export default function BanManagement() {
     } finally {
       setUploading(false);
     }
-    return Upload.LIST_IGNORE; // 阻止 antd 默认上传
+    return Upload.LIST_IGNORE;
   };
 
   const columns = [
+    {
+      title: '是否已清退完成', dataIndex: 'cleared', width: 130, fixed: 'left',
+      render: (v) => (v
+        ? <Tag icon={<CheckCircleTwoTone twoToneColor="#52c41a" />} color="success">已清退</Tag>
+        : <Tag icon={<CloseCircleTwoTone twoToneColor="#ff4d4f" />} color="error">未清退</Tag>),
+    },
     { title: 'BundleID', dataIndex: 'bundle_id', width: 150, ellipsis: true, render: (v) => v || '-' },
     { title: '业务用户ID', dataIndex: 'app_user_id', width: 130 },
     { title: '支付中心用户ID', dataIndex: 'payment_center_user_id', width: 140 },
     {
-      title: '封禁等级', dataIndex: 'ban_level', width: 110,
+      title: '封禁类型', dataIndex: 'ban_level', width: 110,
       render: (v, r) => <Tag color={LEVEL_COLOR[v] || 'default'}>{r.ban_level_label}</Tag>,
     },
     { title: '封禁原因', dataIndex: 'ban_reason', width: 200, ellipsis: true },
@@ -193,35 +234,91 @@ export default function BanManagement() {
     },
   ];
 
+  if (isAdmin) {
+    columns.push({
+      title: '操作', key: 'action', width: 90, fixed: 'right',
+      render: (_, r) => (
+        <Popconfirm title="确认删除这条记录？" okText="删除" cancelText="取消"
+          okButtonProps={{ danger: true }} onConfirm={() => handleDelete(r.id)}>
+          <Button danger size="small" icon={<DeleteOutlined />}>删除</Button>
+        </Popconfirm>
+      ),
+    });
+  }
+
   return (
     <div>
+      {/* 统计看板 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={8} md={4}>
+          <Card size="small"><Statistic title="封禁总人数" value={stats?.total ?? 0} prefix={<TeamOutlined />} /></Card>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <Card size="small"><Statistic title="已清退" value={stats?.cleared ?? 0} valueStyle={{ color: '#52c41a' }} /></Card>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <Card size="small"><Statistic title="未清退" value={stats?.not_cleared ?? 0} valueStyle={{ color: '#ff4d4f' }} /></Card>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <Card size="small"><Statistic title="本周新增" value={stats?.this_week ?? 0} prefix={<ScheduleOutlined />} /></Card>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <Card size="small"><Statistic title="本月新增" value={stats?.this_month ?? 0} prefix={<CalendarOutlined />} /></Card>
+        </Col>
+      </Row>
+
+      {/* 各类型分布 */}
+      <Card size="small" title="各封禁类型人数" style={{ marginBottom: 16 }}>
+        <Space size={[24, 8]} wrap>
+          {(stats?.by_level || []).map((it) => (
+            <Statistic
+              key={it.key}
+              title={<Tag color={LEVEL_COLOR[it.key] || 'default'}>{it.label}</Tag>}
+              value={it.count}
+            />
+          ))}
+          {(!stats || stats.by_level?.length === 0) && <Text type="secondary">暂无数据</Text>}
+        </Space>
+      </Card>
+
       {/* 顶部：筛选 + 操作按钮 */}
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }} gutter={[8, 8]}>
         <Col>
           <Space wrap>
-            <Select
+            <Input
               placeholder="BundleID"
               allowClear
-              style={{ width: 180 }}
+              style={{ width: 170 }}
               value={filters.bundle_id}
-              onChange={(v) => setFilters((f) => ({ ...f, bundle_id: v }))}
-              options={bundleIds.map((b) => ({ value: b, label: b }))}
+              onChange={(e) => setFilters((f) => ({ ...f, bundle_id: e.target.value }))}
+              onPressEnter={handleSearch}
             />
             <Input
               placeholder="业务用户ID"
               allowClear
-              style={{ width: 160 }}
+              style={{ width: 150 }}
               value={filters.app_user_id}
               onChange={(e) => setFilters((f) => ({ ...f, app_user_id: e.target.value }))}
               onPressEnter={handleSearch}
             />
             <Select
-              placeholder="封禁等级"
+              placeholder="封禁类型"
               allowClear
-              style={{ width: 150 }}
+              style={{ width: 140 }}
               value={filters.ban_level}
               onChange={(v) => setFilters((f) => ({ ...f, ban_level: v }))}
               options={banLevels.map((l) => ({ value: l.key, label: l.label }))}
+            />
+            <Select
+              placeholder="清退状态"
+              allowClear
+              style={{ width: 130 }}
+              value={filters.cleared}
+              onChange={(v) => setFilters((f) => ({ ...f, cleared: v }))}
+              options={[
+                { value: true, label: '已清退' },
+                { value: false, label: '未清退' },
+              ]}
             />
             <Button type="primary" onClick={handleSearch}>查询</Button>
             <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
@@ -241,7 +338,7 @@ export default function BanManagement() {
         loading={loading}
         columns={columns}
         dataSource={data}
-        scroll={{ x: 1600 }}
+        scroll={{ x: 1800 }}
         size="middle"
         pagination={{
           ...pagination,
@@ -265,12 +362,12 @@ export default function BanManagement() {
         }
       >
         <Form form={form} layout="vertical">
+          <Form.Item label="是否已清退完成" name="cleared" valuePropName="checked">
+            <Switch checkedChildren="已清退" unCheckedChildren="未清退" />
+          </Form.Item>
+
           <Form.Item label="BundleID" name="bundle_id">
-            <Select
-              placeholder="请选择 BundleID"
-              allowClear
-              options={bundleIds.map((b) => ({ value: b, label: b }))}
-            />
+            <Input placeholder="请输入 BundleID（如 com.company.app1）" />
           </Form.Item>
 
           <Form.Item
@@ -299,9 +396,9 @@ export default function BanManagement() {
           </Form.Item>
 
           <Form.Item
-            label="封禁等级"
+            label="封禁类型"
             name="ban_level"
-            rules={[{ required: true, message: '请选择封禁等级' }]}
+            rules={[{ required: true, message: '请选择封禁类型' }]}
           >
             <Select options={banLevels.map((l) => ({ value: l.key, label: l.label }))} />
           </Form.Item>

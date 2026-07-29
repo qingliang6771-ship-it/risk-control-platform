@@ -76,8 +76,11 @@ export const riskAPI = {
 // Ban (封禁管理) APIs
 export const banAPI = {
   getOptions: () => api.get('/bans/options'),
+  getStats: () => api.get('/bans/stats'),
   list: (params = {}) => api.get('/bans', { params }),
   create: (data) => api.post('/bans', data),
+  remove: (id) => api.delete(`/bans/${id}`),
+
   batchUpload: (file) => {
     const fd = new FormData();
     fd.append('file', file);
