@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KYC统计报告</title>
+<style>
+  :root{
+    --plane:#f9f9f7;--surface-1:#fcfcfb;--text-primary:#0b0b0b;--text-secondary:#52514e;--muted:#898781;
+    --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,0.10);--good:#006300;
+    --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;
+    --seq-100:#cde2fb;--seq-250:#86b6ef;--seq-350:#5598e7;--seq-450:#2a78d6;--seq-600:#184f95;
+    color-scheme:light;
+  }
+  :root[data-theme="dark"]{
+    --plane:#000000;--surface-1:#1a1a19;--surface-2:#211f1e;--text-primary:#ffffff;--text-secondary:#dad9d1;--muted:#a6a49a;
+    --grid:#333331;--axis:#4a4a46;--border:rgba(255,255,255,0.12);--good:#2fd06e;
+    --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;
+    --seq-100:#184f95;--seq-250:#256abf;--seq-350:#3987e5;--seq-450:#5598e7;--seq-600:#86b6ef;
+    --elev:0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 28px rgba(0,0,0,0.55);
+    --accent:linear-gradient(90deg,#3987e5,#199e70);
+    color-scheme:dark;
+  }
+  :root[data-theme="light"]{--surface-2:#ffffff;--elev:0 1px 2px rgba(11,11,11,0.05);--accent:linear-gradient(90deg,#2a78d6,#1baf7a);}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--plane);color:var(--text-primary);
+    font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px;}
+  header.page{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
+  h1{font-size:27px;font-weight:750;margin:0;color:var(--text-primary);letter-spacing:-0.01em;}
+  h1::after{content:"";display:block;width:60px;height:3px;border-radius:3px;background:var(--accent);margin-top:9px;}
+  .sub{color:var(--text-secondary);font-size:13.5px;margin:11px 0 0;}
+  .toggle{border:1px solid var(--border);background:var(--surface-2);color:var(--text-secondary);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s;}
+  .toggle:hover{color:var(--text-primary);border-color:var(--muted);}
+  .kpi-row{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin:20px 0 6px;}
+  .tile{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 15px;box-shadow:var(--elev);position:relative;overflow:hidden;}
+  .tile::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent);opacity:.55;}
+  .tile .label{font-size:12px;color:var(--text-secondary);margin-bottom:6px;}
+  .tile .value{font-size:25px;font-weight:650;letter-spacing:-0.01em;color:var(--text-primary);}
+  .tile .ctx{font-size:11.5px;margin-top:3px;color:var(--muted);}
+  .tile svg.spark{display:block;margin-top:9px;width:100%;height:26px;overflow:visible;}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:16px 18px 18px;box-shadow:var(--elev);}
+  .card h2{font-size:14px;font-weight:600;margin:0;}
+  .card .csub{font-size:12px;color:var(--text-secondary);margin:2px 0 0;}
+  .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;}
+  .link{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:2px 4px;white-space:nowrap;}
+  .link:hover{color:var(--text-primary);text-decoration:underline;}
+  svg.chart{display:block;width:100%;overflow:visible;}
+  svg text{font-family:inherit;}
+  .axis-txt{fill:var(--muted);font-size:11px;}
+  .val-lbl{fill:var(--text-secondary);font-size:11px;font-weight:600;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;}
+  th,td{text-align:right;padding:6px 9px;border-bottom:1px solid var(--grid);}
+  th:first-child,td:first-child{text-align:left;}
+  thead th{color:var(--text-secondary);font-weight:600;}
+  tbody tr:hover{background:rgba(42,120,214,0.05);}
+  .hidden{display:none;}
+  #tip{position:fixed;pointer-events:none;z-index:50;opacity:0;transition:opacity .08s;background:var(--surface-1);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-size:12px;color:var(--text-primary);box-shadow:0 6px 22px rgba(0,0,0,.16);min-width:130px;}
+  #tip .tt-title{font-weight:600;margin-bottom:5px;}
+  #tip .tt-row{display:flex;justify-content:space-between;gap:14px;color:var(--text-secondary);}
+  #tip .tt-row b{color:var(--text-primary);font-weight:600;font-variant-numeric:tabular-nums;}
+  #tip .tt-dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;}
+  .hit{cursor:default;}
+  footer{color:var(--muted);font-size:11.5px;margin-top:28px;line-height:1.7;}
+  @media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <div>
+      <h1>KYC统计报告</h1>
+      <p class="sub" id="subline">加载中…</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <select id="monthSel" class="toggle" style="padding:7px 10px;"></select>
+      <button class="toggle" id="themeBtn">切换浅色</button>
+    </div>
+  </header>
+  <div id="loading" style="padding:40px 0;color:var(--muted);font-size:14px;">正在加载数据…</div>
+  <div id="errbox" class="hidden" style="padding:40px 0;color:var(--s2);font-size:14px;"></div>
+  <div id="content" class="hidden">
+
+
+  <section class="kpi-row" id="kpiRow"></section>
+
+  <section class="card" style="margin-top:16px;">
+    <div class="card-head">
+      <div><h2>每日处理量趋势</h2><p class="csub">虚线为日均参考线</p></div>
+      <button class="link" data-toggle="vol">表格视图</button>
+    </div>
+    <div id="vol"></div><div id="vol-table" class="hidden"></div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <div class="card-head"><div><h2>每日处理正确率</h2><p class="csub">纵轴放大至 98.5–100%</p></div>
+      <button class="link" data-toggle="acc">表格视图</button></div>
+    <div id="acc"></div><div id="acc-table" class="hidden"></div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <div class="card-head"><div><h2>客服处理量排名</h2><p class="csub">当月总处理件数</p></div>
+      <button class="link" data-toggle="avol">表格视图</button></div>
+    <div id="avol"></div><div id="avol-table" class="hidden"></div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <div class="card-head"><div><h2>客服数据明细</h2><p class="csub">按处理量降序</p></div></div>
+    <div id="agent-table"></div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+<div id="tip"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const NF=n=>Number(n).toLocaleString('en-US');
+const compact=n=>n>=1e3?(n/1e3).toFixed(1)+'K':''+n;
+const SVGNS='http://www.w3.org/2000/svg';
+const el=(t,a)=>{const n=document.createElementNS(SVGNS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
+const tip=$('#tip');
+function showTip(h,e){tip.innerHTML=h;tip.style.opacity=1;moveTip(e);}
+function moveTip(e){const p=14,w=tip.offsetWidth,h=tip.offsetHeight;let x=e.clientX+p,y=e.clientY+p;if(x+w>innerWidth)x=e.clientX-w-p;if(y+h>innerHeight)y=e.clientY-h-p;tip.style.left=x+'px';tip.style.top=y+'px';}
+function hideTip(){tip.style.opacity=0;}
+
+let D=null, MONTH='';
+function apiBase(){return location.port==='5173'?'http://localhost:8000':'';}
+
+/* KPI */
+function spark(data,fmt){
+  const w=150,h=26,mn=Math.min(...data),mx=Math.max(...data),r=mx-mn||1;
+  const X=i=>i/(data.length-1)*w,Y=v=>h-((v-mn)/r)*h;
+  const dd=data.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+  const s=el('svg',{class:'spark',viewBox:`0 0 ${w} ${h}`,preserveAspectRatio:'none'});
+  s.appendChild(el('path',{d:dd,fill:'none',stroke:'var(--muted)','stroke-width':1.5,'stroke-linejoin':'round','stroke-linecap':'round'}));
+  s.appendChild(el('circle',{cx:X(data.length-1),cy:Y(data.at(-1)),r:3,fill:'var(--s1)',stroke:'var(--surface-1)','stroke-width':2}));
+  return s;
+}
+function renderKpi(){
+  const s=D.summary;
+  const kpis=[
+    {label:'总处理量',value:NF(s['总处理量']),ctx:'当月共 '+D.meta.n_days+' 天',sp:D.daily_vol.map(x=>x.vol)},
+    {label:'日均处理量',value:NF(D.meta.daily_vol_avg),ctx:'件 / 天 · 全月',sp:D.daily_vol.map(x=>x.vol)},
+    {label:'处理正确率',value:s['正确率(%)']+'%',ctx:'正确 '+NF(s['正确数'])+' 件',sp:D.daily_acc.map(x=>x.acc)},
+    {label:'拒绝率',value:s['拒绝率(%)']+'%',ctx:'拒绝 '+NF(s['拒绝数'])+' 件',sp:null},
+    {label:'操作错误',value:s['操作错误数'],ctx:'占比 '+s['操作错误占比(%)']+'%',sp:null},
+    {label:'判断错误',value:s['判断错误数'],ctx:'占比 '+s['判断错误占比(%)']+'%',sp:null},
+    {label:'活跃客服',value:D.meta.n_agents,ctx:'人 · 全月',sp:null},
+  ];
+  const row=$('#kpiRow');row.innerHTML='';
+  kpis.forEach(k=>{
+    const t=document.createElement('div');t.className='tile';
+    t.innerHTML=`<div class="label">${k.label}</div><div class="value">${k.value}</div><div class="ctx">${k.ctx}</div>`;
+    if(k.sp)t.appendChild(spark(k.sp));
+    row.appendChild(t);
+  });
+}
+
+/* generic line/area */
+function lineChart(sel,rows,acc,opt){
+  const box=$(sel);box.innerHTML='';
+  const W=box.clientWidth||540,H=opt.h||240,m={t:16,r:opt.r||44,b:28,l:opt.l||44};
+  const iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const vals=rows.map(acc);
+  const mn=opt.min!==undefined?opt.min:0;
+  const mx=opt.max!==undefined?opt.max:Math.ceil(Math.max(...vals)/opt.step)*opt.step;
+  const n=rows.length;
+  const X=i=>m.l+(n===1?iw/2:i/(n-1)*iw),Y=v=>m.t+ih-((v-mn)/(mx-mn))*ih;
+  const svg=el('svg',{class:'chart',viewBox:`0 0 ${W} ${H}`});box.appendChild(svg);
+  const ticks=opt.ticks||[];
+  ticks.forEach(t=>{svg.appendChild(el('line',{x1:m.l,x2:W-m.r,y1:Y(t),y2:Y(t),stroke:'var(--grid)','stroke-width':1}));
+    const tx=el('text',{x:m.l-8,y:Y(t)+4,'text-anchor':'end',class:'axis-txt'});tx.textContent=opt.tickFmt?opt.tickFmt(t):t;svg.appendChild(tx);});
+  if(opt.ref!==undefined){
+    svg.appendChild(el('line',{x1:m.l,x2:W-m.r,y1:Y(opt.ref),y2:Y(opt.ref),stroke:'var(--muted)','stroke-width':1,'stroke-dasharray':'4 4','opacity':0.7}));
+  }
+  if(opt.area){
+    const area=`M${X(0)} ${Y(mn)} `+vals.map((v,i)=>'L'+X(i)+' '+Y(v)).join(' ')+` L${X(n-1)} ${Y(mn)} Z`;
+    svg.appendChild(el('path',{d:area,fill:'var(--s1)','fill-opacity':0.10}));
+  }
+  const line=vals.map((v,i)=>(i?'L':'M')+X(i)+' '+Y(v)).join(' ');
+  svg.appendChild(el('path',{d:line,fill:'none',stroke:'var(--s1)','stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round'}));
+  // x labels (every ~5th)
+  rows.forEach((r,i)=>{if(i%opt.xevery===0||i===n-1){const tx=el('text',{x:X(i),y:H-8,'text-anchor':'middle',class:'axis-txt'});tx.textContent=r.date;svg.appendChild(tx);}});
+  // end marker+label
+  const last=n-1;
+  svg.appendChild(el('circle',{cx:X(last),cy:Y(vals[last]),r:4,fill:'var(--s1)',stroke:'var(--surface-1)','stroke-width':2}));
+  const lb=el('text',{x:X(last),y:Y(vals[last])-11,'text-anchor':'end',class:'val-lbl'});lb.textContent=opt.endFmt?opt.endFmt(vals[last]):vals[last];svg.appendChild(lb);
+  // hover
+  rows.forEach((r,i)=>{
+    const rr=el('rect',{x:X(i)-iw/(n*2),y:m.t,width:iw/n,height:ih,fill:'transparent',class:'hit'});
+    rr.addEventListener('mousemove',e=>showTip(`<div class="tt-title">${r.date}</div><div class="tt-row"><span><span class="tt-dot" style="background:var(--s1)"></span>${opt.name}</span><b>${opt.ttFmt?opt.ttFmt(acc(r)):acc(r)}</b></div>`,e));
+    rr.addEventListener('mouseleave',hideTip);svg.appendChild(rr);
+  });
+}
+
+/* horizontal bar */
+function hbar(sel,items,acc,opt){
+  const box=$(sel);box.innerHTML='';
+  const W=box.clientWidth||540,rowH=opt.rowH||34,m={t:6,r:opt.r||56,b:6,l:opt.l||78};
+  const H=m.t+m.b+items.length*rowH,iw=W-m.l-m.r;
+  const mx=opt.max||Math.ceil(Math.max(...items.map(acc))/opt.step)*opt.step;
+  const X=v=>m.l+(v/mx)*iw,bh=Math.min(24,rowH-10);
+  const svg=el('svg',{class:'chart',viewBox:`0 0 ${W} ${H}`});box.appendChild(svg);
+  items.forEach((it,i)=>{
+    const cy=m.t+rowH*i+rowH/2,y=cy-bh/2,w=X(acc(it))-m.l;
+    const nm=el('text',{x:m.l-10,y:cy+4,'text-anchor':'end',class:'axis-txt'});nm.textContent=it.name;svg.appendChild(nm);
+    const rect=el('rect',{x:m.l,y,width:Math.max(w,1),height:bh,rx:4,fill:'var(--s1)',class:'hit'});
+    rect.addEventListener('mousemove',e=>showTip(opt.tt(it),e));
+    rect.addEventListener('mouseleave',hideTip);svg.appendChild(rect);
+    const vl=el('text',{x:X(acc(it))+8,y:cy+4,class:'val-lbl'});vl.textContent=opt.lbl(it);svg.appendChild(vl);
+  });
+}
+
+function tableHTML(cols,rows){
+  let h='<table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  rows.forEach(r=>h+='<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>');
+  return h+'</tbody></table>';
+}
+
+function renderAll(){
+  renderKpi();
+  // daily volume (area)
+  const volMax=Math.max(150,Math.ceil(Math.max(...D.daily_vol.map(x=>x.vol))/150)*150);lineChart('#vol',D.daily_vol,r=>r.vol,{area:true,min:0,max:volMax,ticks:[0,Math.round(volMax/3),Math.round(volMax*2/3),volMax],tickFmt:NF,xevery:4,ref:D.meta.daily_vol_avg,name:'处理量',endFmt:NF,ttFmt:NF});
+  $('#vol-table').innerHTML=tableHTML(['日期','处理量'],D.daily_vol.map(r=>[r.date,NF(r.vol)]));
+  // daily accuracy
+  lineChart('#acc',D.daily_acc,r=>r.acc,{min:98.5,max:100,ticks:[98.5,99,99.5,100],tickFmt:t=>t+'%',xevery:5,name:'正确率',endFmt:v=>v+'%',ttFmt:v=>v+'%',l:44});
+  $('#acc-table').innerHTML=tableHTML(['日期','正确率','判断错误','操作错误'],D.daily_acc.map(r=>[r.date,r.acc+'%',r.judge_err,r.op_err]));
+  // agent volume
+  const av=[...D.agents].sort((a,b)=>b.total-a.total);
+  hbar('#avol',av,a=>a.total,{max:2000,step:500,rowH:34,
+    lbl:a=>NF(a.total),
+    tt:a=>`<div class="tt-title">${a.name}</div><div class="tt-row"><span>总处理量</span><b>${NF(a.total)}</b></div><div class="tt-row"><span>活跃天数</span><b>${a.days} 天</b></div><div class="tt-row"><span>日均</span><b>${a.avg}</b></div>`});
+  $('#avol-table').innerHTML=tableHTML(['客服','总处理量','活跃天数','日均'],av.map(a=>[a.name,NF(a.total),a.days,a.avg]));
+  // agent detail table
+  $('#agent-table').innerHTML=tableHTML(
+    ['客服','总处理量','活跃天数','日均','正确率','拒绝数','拒绝率','判断错误','操作错误'],
+    D.agents.map(a=>[a.name,NF(a.total),a.days,a.avg,a.acc+'%',a.rej,a.rej_rate+'%',a.judge_err,a.op_err])
+  );
+  $('#foot').innerHTML='注：处理量受客服活跃天数影响，横向比较请以日均口径为准。'+
+    ' 正确率经复核口径统计；拒绝率为处理拒绝件数占比，属业务结果而非差错。每张图提供表格视图，深色模式为独立配色。';
+}
+
+document.querySelectorAll('.link[data-toggle]').forEach(b=>{
+  b.addEventListener('click',()=>{const id=b.dataset.toggle,c=$('#'+id),t=$('#'+id+'-table');
+    const show=t.classList.contains('hidden');t.classList.toggle('hidden',!show);c.classList.toggle('hidden',show);
+    b.textContent=show?'图表视图':'表格视图';});
+});
+$('#themeBtn').addEventListener('click',()=>{const dk=document.documentElement.getAttribute('data-theme')==='dark';
+  document.documentElement.setAttribute('data-theme',dk?'light':'dark');$('#themeBtn').textContent=dk?'切换深色':'切换浅色';if(D)renderAll();});
+window.addEventListener('resize',()=>{clearTimeout(window._rz);window._rz=setTimeout(()=>{if(D)renderAll();},150);});
+
+function fmtMonth(m){const [y,mo]=m.split('-');return y+'年'+parseInt(mo,10)+'月';}
+function showError(msg){$('#loading').classList.add('hidden');$('#content').classList.add('hidden');const e=$('#errbox');e.classList.remove('hidden');e.textContent=msg;}
+
+async function loadMonths(){
+  const r=await fetch(apiBase()+'/api/kyc-report/months',{credentials:'include'});
+  if(!r.ok)throw new Error('无法获取月份列表（HTTP '+r.status+'）');
+  return (await r.json()).months||[];
+}
+async function loadReport(month){
+  $('#loading').classList.remove('hidden');$('#content').classList.add('hidden');$('#errbox').classList.add('hidden');
+  const url=apiBase()+'/api/kyc-report'+(month?('?month='+encodeURIComponent(month)):'');
+  const r=await fetch(url,{credentials:'include'});
+  if(!r.ok)throw new Error('加载报告失败（HTTP '+r.status+'）');
+  D=await r.json();
+  MONTH=D.meta.month||month||'';
+  $('#subline').textContent='KYC 处理统计 · 统计周期 '+fmtMonth(MONTH)+'（共 '+D.meta.n_days+' 天）· 数据来源：KYC处理统计表';
+  document.querySelector('h1').textContent='KYC统计报告（'+fmtMonth(MONTH)+'）';
+  $('#loading').classList.add('hidden');$('#content').classList.remove('hidden');
+  renderAll();
+}
+
+async function init(){
+  try{
+    let months=[];
+    try{months=await loadMonths();}catch(e){months=[];}
+    const sel=$('#monthSel');
+    if(months.length){
+      sel.innerHTML=months.map(m=>`<option value="${m}">${fmtMonth(m)}</option>`).join('');
+      sel.value=months[0];
+      sel.addEventListener('change',()=>loadReport(sel.value).catch(err=>showError(err.message)));
+      await loadReport(months[0]);
+    }else{
+      sel.style.display='none';
+      await loadReport('');
+    }
+  }catch(err){
+    showError(err.message+'。请确认已上传 KYC 统计表，且已通过 Lark 登录。');
+  }
+}
+init();
+</script>
+</body>
+</html>
