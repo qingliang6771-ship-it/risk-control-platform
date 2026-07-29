@@ -7,12 +7,15 @@ import {
   DashboardOutlined,
   LogoutOutlined,
   UserOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import AIReport from './pages/AIReport';
 import RiskQuery from './pages/RiskQuery';
 import Dashboard from './pages/Dashboard';
+import KYCReport from './pages/KYCReport';
+
 import { authAPI } from './services/api';
 
 const { Header, Sider, Content } = Layout;
@@ -73,7 +76,13 @@ function AppLayout() {
       icon: <SafetyOutlined />,
       label: '风控查询',
     },
+    {
+      key: '/kyc-report',
+      icon: <FileTextOutlined />,
+      label: 'KYC 报告',
+    },
   ];
+
 
   const userMenuItems = [
     {
@@ -141,7 +150,9 @@ function AppLayout() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/ai-report" element={<AIReport />} />
             <Route path="/risk-query" element={<RiskQuery />} />
+            <Route path="/kyc-report" element={<KYCReport />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
           </Routes>
         </Content>
       </Layout>
