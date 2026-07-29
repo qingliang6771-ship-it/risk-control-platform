@@ -43,10 +43,11 @@ class UpdatePermissionsBody(BaseModel):
 
 class AddUserBody(BaseModel):
     name: str
-    lark_open_id: str
-    email: Optional[str] = None
+    email: str  # 预建用户只需邮箱；用户用 Lark 登录后会自动按邮箱合并并回填 open_id
+    lark_open_id: Optional[str] = None
     permitted_modules: Optional[List[str]] = None
     is_admin: Optional[bool] = False
+
 
 
 @router.get("/modules")
@@ -84,22 +85,35 @@ async def add_user(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """手动预建一个 Lark 授权用户（用户尚未登录时提前配置权限）。"""
+    """手动预建一个授权用户（用户尚未登录时提前配置权限）。
+
+    只需填邮箱即可：此处生成一个占位的 id / lark_open_id（pending: 前缀）。
+    该同事之后用 Lark 登录时，系统会按邮箱匹配这条预建记录，
+    自动回填真实的 open_id，并保留这里配置好的权限。
+    """
+    email = (body.email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="请填写邮箱")
+
     # 校验模块合法性
     modules = body.permitted_modules if body.permitted_modules is not None else list(DEFAULT_MODULES)
     invalid = [m for m in modules if m not in ALL_MODULES]
     if invalid:
         raise HTTPException(status_code=400, detail=f"无效模块: {invalid}")
 
-    existing = await db.execute(select(User).where(User.lark_open_id == body.lark_open_id))
+    # 邮箱去重（无论是否已登录）
+    existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="该 Lark OpenID 用户已存在")
+        raise HTTPException(status_code=400, detail="该邮箱用户已存在")
+
+    # 用占位 id，登录后自动替换为真实 open_id
+    placeholder = body.lark_open_id or f"pending:{email}"
 
     user = User(
-        id=body.lark_open_id,
+        id=placeholder,
         name=body.name,
-        email=body.email,
-        lark_open_id=body.lark_open_id,
+        email=email,
+        lark_open_id=placeholder,
         is_admin=bool(body.is_admin),
         permitted_modules=modules,
     )
@@ -107,6 +121,7 @@ async def add_user(
     await db.commit()
     await db.refresh(user)
     return _serialize(user)
+
 
 
 @router.put("/users/{user_id}/permissions")

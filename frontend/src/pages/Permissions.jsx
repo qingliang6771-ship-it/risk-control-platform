@@ -242,19 +242,25 @@ function Permissions() {
         cancelText="取消"
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          用于在用户首次登录前预先配置其权限。OpenID 可从 Lark 开放平台获取。
+          用于在用户首次登录前预先配置其权限。只需填写姓名和邮箱即可；
+          该同事用 Lark 登录后，系统会按邮箱自动匹配并保留这里配置的权限。
         </Text>
         <Form form={addForm} layout="vertical">
           <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
             <Input placeholder="张三" />
           </Form.Item>
-          <Form.Item name="lark_open_id" label="Lark OpenID"
-            rules={[{ required: true, message: '请输入 Lark OpenID' }]}>
-            <Input placeholder="ou_xxxxxxxx" />
-          </Form.Item>
-          <Form.Item name="email" label="Email">
+          <Form.Item name="email" label="Email"
+            rules={[
+              { required: true, message: '请输入邮箱' },
+              { type: 'email', message: '邮箱格式不正确' },
+            ]}>
             <Input placeholder="name@company.com" />
           </Form.Item>
+          <Form.Item name="lark_open_id" label="Lark OpenID（选填）"
+            tooltip="一般无需填写。若想精确指定可从 Lark 开放平台获取">
+            <Input placeholder="ou_xxxxxxxx（可留空）" />
+          </Form.Item>
+
           <Form.Item name="permitted_modules" label="模块权限">
             <Checkbox.Group>
               <Space direction="vertical">

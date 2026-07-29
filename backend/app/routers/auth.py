@@ -91,9 +91,20 @@ async def lark_callback(code: str, state: str = "", db: AsyncSession = Depends(g
         result = await db.execute(select(User).where(User.lark_open_id == open_id))
         user = result.scalar_one_or_none()
 
+        # 若按 open_id 没找到，尝试按邮箱匹配管理员预建的记录（占位 id），
+        # 匹配到则回填真实 open_id，实现"只用邮箱预建 + 登录自动合并"。
+        if not user and email:
+            pre = await db.execute(select(User).where(User.email == email))
+            pre_user = pre.scalar_one_or_none()
+            if pre_user:
+                pre_user.id = open_id
+                pre_user.lark_open_id = open_id
+                pre_user.lark_union_id = union_id
+                user = pre_user
+
         if user:
             user.name = name
-            user.email = email
+            user.email = email or user.email
             user.avatar_url = avatar_url
             user.last_login = datetime.utcnow()
         else:
@@ -111,6 +122,7 @@ async def lark_callback(code: str, state: str = "", db: AsyncSession = Depends(g
                 permitted_modules=list(ALL_MODULES) if is_first_user else list(DEFAULT_MODULES),
             )
             db.add(user)
+
 
 
         await db.commit()
