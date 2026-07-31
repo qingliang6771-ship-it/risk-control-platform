@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/risk_control"
+    # 默认使用绝对路径的 SQLite，指向 docker 卷挂载目录 /app/backend/db，
+    # 确保重建容器后数据不丢失（生产由 backend/.env 覆盖）。
+    DATABASE_URL: str = "sqlite+aiosqlite:////app/backend/db/risk_control.db"
+
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # JWT Auth

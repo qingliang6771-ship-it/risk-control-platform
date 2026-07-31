@@ -105,21 +105,43 @@ cd /opt/risk-control-platform
 bash deploy/server_deploy.sh
 ```
 
-> ⚠️ 首次升级到「持久化卷」版本时的一次性数据迁移
-> 旧版本数据库文件在容器内 `/app/backend/risk_control.db`（未挂卷）。
-> 本版本已把数据库改到 `backend/db/` 目录并挂载 `risk-db` 卷。
-> 如果你之前已有重要数据（如已登录用户），在**第一次**执行新版部署前，
-> 先把旧库拷到宿主机、再放进新卷目录，避免"数据看起来丢了"：
+> ⚠️⚠️ 重要：修复「每次更新后数据丢失」的一次性迁移
+>
+> **历史根因**：旧配置里数据库用的是相对路径 `sqlite+aiosqlite:///./db/...`，
+> 由于运行时工作目录的关系，SQLite 实际被写到了容器内 `/app/backend/risk_control.db`
+> （**backend 根目录，未被卷挂载**），而 docker 卷只挂了 `/app/backend/db`。
+> 结果每次 `docker compose up -d --build` 重建容器，数据库都被重置，历史数据丢失。
+>
+> **本版本修复**：`DATABASE_URL` 改为**绝对路径** `sqlite+aiosqlite:////app/backend/db/risk_control.db`，
+> 让数据库始终落在被 `risk-db` 卷挂载的目录里，从此重建容器不再丢数据。
+>
+> **升级步骤（务必按顺序，先抢救旧数据再更新）：**
 > ```bash
-> # 1) 从旧容器导出数据库（若容器还在运行）
-> docker cp risk-control-platform:/app/backend/risk_control.db ./risk_control.db
-> # 2) 拉新代码并首次构建（此步会创建 risk-db 卷）
-> git pull origin main && docker compose up -d --build
-> # 3) 把旧库放进新卷位置后重启
-> docker cp ./risk_control.db risk-control-platform:/app/backend/db/risk_control.db
+> cd /opt/risk-control-platform
+>
+> # 1) 先把当前容器里的旧数据库导出到宿主机（趁容器还在运行、数据还在）
+> docker cp risk-control-platform:/app/backend/risk_control.db ./old_risk_control.db || \
+>   echo "旧库不在根目录，尝试 db 子目录：" && \
+>   docker cp risk-control-platform:/app/backend/db/risk_control.db ./old_risk_control.db || true
+>
+> # 2) 修改服务器上的 backend/.env，把 DATABASE_URL 改成绝对路径：
+> #    DATABASE_URL=sqlite+aiosqlite:////app/backend/db/risk_control.db
+> #    （注意是 4 条斜杠：sqlite+aiosqlite://// 表示绝对路径 /app/...）
+> sed -i 's#^DATABASE_URL=.*#DATABASE_URL=sqlite+aiosqlite:////app/backend/db/risk_control.db#' backend/.env
+> grep DATABASE_URL backend/.env    # 确认已是 4 斜杠的绝对路径
+>
+> # 3) 拉新代码并重建（此步会确保 risk-db 卷挂到 /app/backend/db）
+> git pull origin main
+> docker compose up -d --build
+>
+> # 4) 把旧数据库放进卷内的新位置，然后重启加载
+> docker cp ./old_risk_control.db risk-control-platform:/app/backend/db/risk_control.db
 > docker compose restart
 > ```
-> 若数据可重置（重新登录即可），忽略以上步骤直接部署即可。
+> 完成后，历史封禁数据即恢复，且之后每次更新都会保留。
+>
+> 若确认历史数据可放弃（重新登录/重传即可），可跳过 1、4 两步，只做 2、3。
+
 
 
 ---
