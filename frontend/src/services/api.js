@@ -79,7 +79,9 @@ export const banAPI = {
   getStats: () => api.get('/bans/stats'),
   list: (params = {}) => api.get('/bans', { params }),
   create: (data) => api.post('/bans', data),
+  update: (id, data) => api.put(`/bans/${id}`, data),
   remove: (id) => api.delete(`/bans/${id}`),
+
   exportCsv: (params = {}) => api.get('/bans/export', { params, responseType: 'blob' }),
 
 

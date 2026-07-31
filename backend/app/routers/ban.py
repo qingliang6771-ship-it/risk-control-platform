@@ -69,6 +69,22 @@ class FundInfoQuery(BaseModel):
     payment_center_user_id: Optional[str] = None
 
 
+class BanUpdate(BaseModel):
+    """更新封禁记录：所有字段可选，仅更新传入的字段（部分更新）。"""
+    cleared: Optional[bool] = None
+    bundle_id: Optional[str] = None
+    app_user_id: Optional[str] = None
+    payment_center_user_id: Optional[str] = None
+    ban_level: Optional[str] = None
+    ban_reason: Optional[str] = None
+    total_recharge: Optional[float] = None
+    total_withdraw: Optional[float] = None
+    total_risk_amount: Optional[float] = None
+    current_balance: Optional[float] = None
+    balance_refunded: Optional[bool] = None
+
+
+
 # ---------- 工具 ----------
 def _validate_level(level: str) -> str:
     if level not in BAN_LEVELS:
@@ -354,6 +370,42 @@ async def create_ban(
     return record.to_dict()
 
 
+# ---------- 更新（有模块权限即可）----------
+@router.put("/{ban_id}")
+async def update_ban(
+    ban_id: int,
+    body: BanUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_ban_module),
+):
+    """更新一条封禁记录（部分更新，仅更新传入字段）。可用于修改清退状态、封禁类型、资金数据等。"""
+    record = (await db.execute(select(BanRecord).where(BanRecord.id == ban_id))).scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    data = body.dict(exclude_unset=True)
+
+    if "ban_level" in data and data["ban_level"] is not None:
+        _validate_level(data["ban_level"])
+    # 必填字段不允许被清空
+    for req in ("app_user_id", "payment_center_user_id", "ban_reason"):
+        if req in data:
+            v = (data[req] or "").strip() if isinstance(data[req], str) else data[req]
+            if not v:
+                raise HTTPException(status_code=400, detail=f"{req} 不能为空")
+            data[req] = v
+    # bundle_id 允许清空为 None
+    if "bundle_id" in data:
+        data["bundle_id"] = (data["bundle_id"].strip() if data["bundle_id"] else None) or None
+
+    for k, v in data.items():
+        setattr(record, k, v)
+
+    await db.commit()
+    await db.refresh(record)
+    return record.to_dict()
+
+
 # ---------- 删除（仅管理员）----------
 @router.delete("/{ban_id}")
 async def delete_ban(
@@ -361,6 +413,7 @@ async def delete_ban(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin_user),
 ):
+
     """删除一条封禁记录（仅管理员）。"""
     record = (await db.execute(select(BanRecord).where(BanRecord.id == ban_id))).scalar_one_or_none()
     if not record:

@@ -6,7 +6,8 @@ import {
 } from 'antd';
 import {
   PlusOutlined, UploadOutlined, InboxOutlined, ReloadOutlined,
-  DollarOutlined, DownloadOutlined, DeleteOutlined, ExportOutlined,
+  DollarOutlined, DownloadOutlined, DeleteOutlined, ExportOutlined, EditOutlined,
+
   CheckCircleTwoTone, CloseCircleTwoTone, TeamOutlined,
   CalendarOutlined, ScheduleOutlined,
 } from '@ant-design/icons';
@@ -53,9 +54,11 @@ export default function BanManagement() {
   const [exporting, setExporting] = useState(false);
 
 
-  // 手动录入抽屉
+  // 手动录入/编辑抽屉
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null); // null=新增，否则为编辑的记录ID
   const [submitting, setSubmitting] = useState(false);
+
   const [fundLoading, setFundLoading] = useState(false);
   const [form] = Form.useForm();
 
@@ -157,6 +160,7 @@ export default function BanManagement() {
 
   // ---- 手动录入 ----
   const openDrawer = () => {
+    setEditingId(null);
     form.resetFields();
     form.setFieldsValue({
       ban_level: 'compliance', cleared: false, balance_refunded: false,
@@ -164,6 +168,27 @@ export default function BanManagement() {
     });
     setDrawerOpen(true);
   };
+
+  // ---- 编辑（复用同一抽屉）----
+  const openEdit = (record) => {
+    setEditingId(record.id);
+    form.resetFields();
+    form.setFieldsValue({
+      cleared: !!record.cleared,
+      bundle_id: record.bundle_id || undefined,
+      app_user_id: record.app_user_id,
+      payment_center_user_id: record.payment_center_user_id,
+      ban_level: record.ban_level,
+      ban_reason: record.ban_reason,
+      total_recharge: record.total_recharge ?? 0,
+      total_withdraw: record.total_withdraw ?? 0,
+      total_risk_amount: record.total_risk_amount ?? 0,
+      current_balance: record.current_balance ?? 0,
+      balance_refunded: !!record.balance_refunded,
+    });
+    setDrawerOpen(true);
+  };
+
 
   const handleFetchFund = async () => {
     const appId = form.getFieldValue('app_user_id');
@@ -194,18 +219,27 @@ export default function BanManagement() {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await banAPI.create(values);
-      message.success('封禁记录已录入');
-      setDrawerOpen(false);
-      fetchData(1, pagination.pageSize, filters);
-      fetchStats();
+      if (editingId) {
+        await banAPI.update(editingId, values);
+        message.success('封禁记录已更新');
+        setDrawerOpen(false);
+        // 编辑后停留在当前页刷新
+        fetchData(pagination.current, pagination.pageSize, filters);
+      } else {
+        await banAPI.create(values);
+        message.success('封禁记录已录入');
+        setDrawerOpen(false);
+        fetchData(1, pagination.pageSize, filters);
+      }
+      fetchStats(filters);
     } catch (err) {
       if (err?.errorFields) return;
-      message.error(err.response?.data?.detail || '录入失败');
+      message.error(err.response?.data?.detail || (editingId ? '更新失败' : '录入失败'));
     } finally {
       setSubmitting(false);
     }
   };
+
 
   // ---- 删除（管理员）----
   const handleDelete = async (id) => {
@@ -288,17 +322,23 @@ export default function BanManagement() {
     },
   ];
 
-  if (isAdmin) {
-    columns.push({
-      title: '操作', key: 'action', width: 90, fixed: 'right',
-      render: (_, r) => (
-        <Popconfirm title="确认删除这条记录？" okText="删除" cancelText="取消"
-          okButtonProps={{ danger: true }} onConfirm={() => handleDelete(r.id)}>
-          <Button danger size="small" icon={<DeleteOutlined />}>删除</Button>
-        </Popconfirm>
-      ),
-    });
-  }
+  columns.push({
+    title: '操作', key: 'action', width: isAdmin ? 150 : 80, fixed: 'right',
+    render: (_, r) => (
+      <Space size={4}>
+        <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
+          编辑
+        </Button>
+        {isAdmin && (
+          <Popconfirm title="确认删除这条记录？" okText="删除" cancelText="取消"
+            okButtonProps={{ danger: true }} onConfirm={() => handleDelete(r.id)}>
+            <Button danger type="link" size="small" icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        )}
+      </Space>
+    ),
+  });
+
 
   return (
     <div>
@@ -413,10 +453,11 @@ export default function BanManagement() {
         }}
       />
 
-      {/* 手动录入抽屉 */}
+      {/* 手动录入/编辑抽屉 */}
       <Drawer
-        title="手动录入封禁记录"
+        title={editingId ? '编辑封禁记录' : '手动录入封禁记录'}
         width={520}
+
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         extra={
